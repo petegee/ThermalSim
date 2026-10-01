@@ -65,35 +65,44 @@ export function thermalCalm(thermal, p) {
 }
 
 // Gusts: a handful of travelling sine waves frozen into the air mass and
-// carried along with the ambient wind, so both poles feel related (but not
-// identical) gusts. Amplitude scales with wind speed; `intensity` is the
-// fraction of ambient speed (RMS per component).
+// carried along with the ambient wind, so nearby streamers feel related (but
+// not identical) gusts. They change both speed and direction. Amplitude
+// scales with wind speed; `intensity` is the along-wind RMS as a fraction of
+// ambient speed, and crosswind gusts are GUST_CROSS of that, as is typical
+// near the ground.
+//
+// The swirls are kept small (GUST_WAVELENGTH metres), so they pass a
+// streamer in a second or few and read as flutter. Slow, large-scale wander
+// would look just like a passing thermal and swamp the signal the trainer is
+// about.
+export const GUST_WAVELENGTH = [4, 30];
+export const GUST_CROSS = 0.7;
 export class GustField {
   constructor(rng, intensity) {
     this.intensity = intensity;
     this.modes = [];
     const n = 7;
     for (let i = 0; i < n; i++) {
-      const wavelength = randRange(rng, 10, 70);
+      const wavelength = randRange(rng, ...GUST_WAVELENGTH);
       const ang = rng() * Math.PI * 2;
       const k = (2 * Math.PI) / wavelength;
       this.modes.push({
         kx: Math.cos(ang) * k,
         ky: Math.sin(ang) * k,
-        omega: randRange(rng, -0.4, 0.4),
+        omega: randRange(rng, -0.8, 0.8),
         px: rng() * Math.PI * 2,
         py: rng() * Math.PI * 2,
-        // Along-wind fluctuations are usually a bit bigger than cross-wind.
         ax: randRange(rng, 0.4, 1),
         ay: randRange(rng, 0.4, 1),
       });
     }
-    // Normalise so each component has unit RMS before scaling by intensity.
+    // Normalise so the along-wind component has unit RMS (crosswind
+    // GUST_CROSS) before scaling by intensity.
     const sx = Math.sqrt(this.modes.reduce((s, m) => s + (m.ax * m.ax) / 2, 0));
     const sy = Math.sqrt(this.modes.reduce((s, m) => s + (m.ay * m.ay) / 2, 0));
     for (const m of this.modes) {
       m.ax /= sx;
-      m.ay /= sy;
+      m.ay *= GUST_CROSS / sy;
     }
   }
 

@@ -1,4 +1,12 @@
-import { createScenario, Round, randomSeed, WIND_CLASSES, THERMAL_CLASSES, FIELD_SHORT_HALF } from './scenario.js';
+import {
+  createScenario,
+  Round,
+  randomSeed,
+  WIND_CLASSES,
+  THERMAL_CLASSES,
+  FIELD_SHORT_HALF,
+  DEFAULT_GUSTINESS,
+} from './scenario.js';
 import { Streamer } from './physics.js';
 import { Renderer } from './render.js';
 import { FlowParticles } from './flow.js';
@@ -26,15 +34,20 @@ const store = {
   },
 };
 
+// Bump when a default changes enough that old saved values should be
+// dropped. v2: gustiness default 10% → 6% after the turbulence retune.
+const SETTINGS_VERSION = 2;
 const savedSettings = store.get('tvt.settings', {});
+if (savedSettings.v !== SETTINGS_VERSION) delete savedSettings.gustiness;
 const settings = {
   mode: 'poles',
   windClass: 'random',
   thermalClass: 'medium',
   easy: false,
-  gustiness: 10,
+  gustiness: Math.round(DEFAULT_GUSTINESS * 100),
   speed: 1,
   ...savedSettings,
+  v: SETTINGS_VERSION,
   assists: { baseline: true, third: false, project: false, rings: true, ...(savedSettings.assists || {}) },
 };
 const saveSettings = () => store.set('tvt.settings', settings);
@@ -61,6 +74,8 @@ let sessionScore = 0;
 const INSTRUCTIONS = {
   poles:
     'Watch both streamers. When the air shifts, work out the third vector and <strong>click the field where you think the thermal is</strong>.',
+  ring:
+    'Six streamers surround you. Each one’s shift points toward the lift: upwind ones lull as it approaches, downwind ones surge once it has passed. <strong>Click where you think the thermal is</strong>.',
   pilot:
     'Watch the streamer beside you. Its shift points toward the lift, and how big and how fast it changes tells you how far away. <strong>Click where you think the thermal is</strong>.',
 };
@@ -185,6 +200,14 @@ function onOver() {
     ['Thermal', `${THERMAL_CLASSES[scn.thermalClass].label}, ${spec.strength.toFixed(1)} m/s peak inflow`],
     ['Core size', `${Math.round(spec.radius * 2)} m across`],
   ];
+  const sig = spec.signal;
+  if (sig?.pole) {
+    const pole = scn.poles.find((p) => p.id === sig.pole);
+    rows.push([
+      'Biggest shift',
+      `${Math.round(sig.angle)}° and ${Math.round(sig.speed * 100)}% on the ${pole.label}`,
+    ]);
+  }
   $('sumGrid').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
   $('toast').hidden = true;
   $('summary').hidden = false;

@@ -1,7 +1,7 @@
 // Scenario generation and the round state machine. No DOM in here so it can be
 // unit-tested under Node.
 
-import { add, scale, dot, dist, perpLeft, norm, fromHeading } from './vec.js';
+import { add, scale, dot, dist, len, perpLeft, norm, fromHeading } from './vec.js';
 import { mulberry32, randRange, smoothstep, GustField, localWind } from './physics.js';
 
 // The visible field is a rectangle centred on the pilot. Its shorter side
@@ -35,15 +35,19 @@ export const EASY_LEAD = { min: 15, max: 55 };
 
 // Streamer layouts, in wind-aligned coordinates relative to the pilot.
 //   poles: two poles upwind, one each side: the classic third-vector setup.
+//   ring:  RING.count poles evenly round the pilot at RING.radius, starting
+//          RING.count/2 steps off dead upwind, so there's a pair upwind,
+//          crosswind and downwind (for six).
 //   pilot: a single streamer beside the pilot (a little upwind and to the
 //          right, so it blows past rather than across the pilot figure).
-export const LAYOUTS = {
-  poles: { label: 'Two poles' },
-  pilot: { label: 'Pilot streamer' },
-};
+export const LAYOUTS = ['poles', 'ring', 'pilot'];
 export const POLE_UPWIND = 28;
 export const POLE_SPREAD = 18;
+export const RING = { count: 6, radius: 30 };
 export const PILOT_STREAMER = { upwind: 4, right: 6 };
+
+// Along-wind gust RMS as a fraction of wind speed.
+export const DEFAULT_GUSTINESS = 0.06;
 
 // The thermal may form this far beyond the upwind edge and drift in.
 export const ENTRY_MARGIN = 15;
@@ -53,13 +57,24 @@ export function randomSeed() {
 }
 
 function makePoles(layout, upwind, left) {
+  if (layout === 'ring') {
+    return Array.from({ length: RING.count }, (_, i) => {
+      // Angle from dead upwind, counter-clockwise (toward the pilot's left).
+      const a = ((i + 0.5) / RING.count) * Math.PI * 2;
+      const pos = add(scale(upwind, RING.radius * Math.cos(a)), scale(left, RING.radius * Math.sin(a)));
+      // Name it by where it stands relative to the pilot facing into wind.
+      const along = Math.cos(a) > 0.5 ? 'upwind' : Math.cos(a) < -0.5 ? 'downwind' : 'crosswind';
+      const side = Math.sin(a) > 0 ? 'left' : 'right';
+      return { id: String(i + 1), label: `${along}-${side} streamer`, pos };
+    });
+  }
   if (layout === 'pilot') {
     const { upwind: a, right } = PILOT_STREAMER;
-    return [{ id: 'P', label: 'Your streamer', pos: add(scale(upwind, a), scale(left, -right)) }];
+    return [{ id: 'P', label: 'pilot streamer', pos: add(scale(upwind, a), scale(left, -right)) }];
   }
   return [
-    { id: 'L', label: 'Left pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, POLE_SPREAD)) },
-    { id: 'R', label: 'Right pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, -POLE_SPREAD)) },
+    { id: 'L', label: 'left pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, POLE_SPREAD)) },
+    { id: 'R', label: 'right pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, -POLE_SPREAD)) },
   ];
 }
 
@@ -90,7 +105,7 @@ export const minTrackOnField = (windSpeed) => Math.max(35, windSpeed * 15);
 //   windClass: 'random' | 'slow' | 'moderate',
 //   thermalClass: 'random' | 'weak' | 'medium' | 'strong',
 //   gustiness: 0..0.35,
-//   layout: 'poles' | 'pilot',
+//   layout: 'poles' | 'ring' | 'pilot',
 //   easy: boolean,
 //   field: { halfW, halfH } in metres,
 // }
@@ -103,7 +118,7 @@ export function createScenario(seed, opts = {}) {
   const windFrom = rng() * 360; // meteorological: direction the wind comes FROM
   const wind = fromHeading((windFrom + 180) % 360, windSpeed);
 
-  const layout = opts.layout === 'pilot' ? 'pilot' : 'poles';
+  const layout = LAYOUTS.includes(opts.layout) ? opts.layout : 'poles';
   const field = opts.field ?? DEFAULT_FIELD;
   const down = norm(wind);
   const upwind = scale(down, -1);
@@ -123,8 +138,26 @@ export function createScenario(seed, opts = {}) {
     : [-crossExtent, crossExtent];
   const streamersAt = Math.min(...poles.map((pl) => dot(pl.pos, down))); // most upwind
   const minTrack = minTrackOnField(windSpeed);
-  let spawnPos;
-  for (let i = 0; i < 400 && !spawnPos; i++) {
+
+  const thermalPref = opts.thermalClass ?? 'medium';
+  const thermalClass =
+    thermalPref === 'random' ? ['weak', 'medium', 'strong'][Math.floor(rng() * 3)] : thermalPref;
+  const tc = THERMAL_CLASSES[thermalClass];
+  const thermalSpec = {
+    spawnTime: randRange(rng, 5, 14),
+    spawnPos: null,
+    radius: randRange(rng, ...tc.radius), // core radius, m
+    strength: randRange(rng, ...tc.strength), // peak inflow at the core edge, m/s
+    rampTime: randRange(rng, 5, 9), // seconds to build to full strength
+    signal: null,
+  };
+
+  // Only accept a track that gives a readable signal: at some point while
+  // the thermal is on the field, at least one streamer must swing by
+  // MIN_SIGNAL.angle and change speed by MIN_SIGNAL.speed. If no candidate
+  // manages it, keep the one that came closest.
+  let best = null;
+  for (let i = 0; i < 400; i++) {
     const o = scale(left, randRange(rng, crossRange[0], crossRange[1]));
     const chord = fieldChord(o, down, field);
     if (!chord || chord[1] - chord[0] < minTrack) continue; // clips a corner
@@ -134,23 +167,14 @@ export function createScenario(seed, opts = {}) {
     if (hi < lo) continue;
     const p = add(o, scale(down, randRange(rng, lo, hi)));
     if (Math.min(...poles.map((pl) => dist(pl.pos, p))) < 8) continue;
-    spawnPos = p;
+    const signal = thermalSignal({ wind, poles, field }, { ...thermalSpec, spawnPos: p });
+    if (!best || signal.score > best.signal.score) best = { p, signal };
+    if (signal.score >= SIGNAL_MARGIN) break;
   }
-  spawnPos ??= scale(upwind, 40);
+  thermalSpec.spawnPos = best ? best.p : scale(upwind, 40);
+  thermalSpec.signal = best ? best.signal : null;
 
-  const thermalPref = opts.thermalClass ?? 'medium';
-  const thermalClass =
-    thermalPref === 'random' ? ['weak', 'medium', 'strong'][Math.floor(rng() * 3)] : thermalPref;
-  const tc = THERMAL_CLASSES[thermalClass];
-  const thermalSpec = {
-    spawnTime: randRange(rng, 5, 14),
-    spawnPos,
-    radius: randRange(rng, ...tc.radius), // core radius, m
-    strength: randRange(rng, ...tc.strength), // peak inflow at the core edge, m/s
-    rampTime: randRange(rng, 5, 9), // seconds to build to full strength
-  };
-
-  const gustiness = opts.gustiness ?? 0.1;
+  const gustiness = opts.gustiness ?? DEFAULT_GUSTINESS;
   const gusts = new GustField(rng, gustiness);
 
   return {
@@ -171,6 +195,56 @@ export function createScenario(seed, opts = {}) {
     gustiness,
     thermal: null,
   };
+}
+
+// ---- Signal check -------------------------------------------------------------
+//
+// The thermal has to make itself felt: somewhere along its track, while it is
+// on the field, at least one streamer must turn by MIN_SIGNAL.angle degrees
+// away from the ambient wind direction and change speed by MIN_SIGNAL.speed
+// (a fraction of ambient). The two don't have to peak at the same moment.
+// With default gusts (along-wind RMS 6 %, direction RMS ~2.5°) both are well
+// clear of the turbulence.
+export const MIN_SIGNAL = { angle: 15, speed: 0.2 };
+// The generator asks for this much more than MIN_SIGNAL, so the round, which
+// samples at its own frame times, always clears the thresholds comfortably.
+const SIGNAL_MARGIN = 1.1;
+
+// Below this felt speed (m/s) a streamer is limp, so its angle means nothing.
+const LIMP_MS = 0.3;
+
+// Drift the thermal (without gusts) from where it forms until it leaves the
+// field, and report the biggest change it makes to each streamer. Returns the
+// streamer that best meets both thresholds: { angle, speed, pole, score },
+// where score ≥ 1 means both are met.
+export function thermalSignal({ wind, poles, field }, spec, dt = 0.5) {
+  const W = len(wind);
+  const th = { pos: { ...spec.spawnPos }, radius: spec.radius, strength: spec.strength, strengthNow: 0 };
+  const peak = poles.map(() => ({ angle: 0, speed: 0 }));
+  let entered = false;
+  for (let t = 0; t < 600; t += dt) {
+    th.pos = add(spec.spawnPos, scale(wind, t));
+    th.strengthNow = spec.strength * smoothstep(0, spec.rampTime, t);
+    const off = offField(th.pos, 0, field);
+    if (off && entered) break;
+    if (off) continue;
+    entered = true;
+    poles.forEach((pole, i) => {
+      const felt = localWind({ wind }, pole.pos, null, th);
+      const s = len(felt);
+      peak[i].speed = Math.max(peak[i].speed, Math.abs(s - W) / W);
+      if (s > LIMP_MS) {
+        const cos = dot(felt, wind) / (s * W);
+        peak[i].angle = Math.max(peak[i].angle, (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI);
+      }
+    });
+  }
+  let best = { angle: 0, speed: 0, pole: null, score: 0 };
+  peak.forEach((pk, i) => {
+    const score = Math.min(pk.angle / MIN_SIGNAL.angle, pk.speed / MIN_SIGNAL.speed);
+    if (score > best.score) best = { ...pk, pole: poles[i].id, score };
+  });
+  return best;
 }
 
 // Is a circle of radius r at p completely outside the field?
@@ -233,8 +307,11 @@ export class Round {
 
     const th = this.scn.thermal;
     if (th) {
-      th.pos = add(th.pos, scale(this.scn.wind, dt));
-      th.strengthNow = th.strength * smoothstep(0, spec.rampTime, this.t - th.bornAt);
+      // Position follows from age, so it's at spawnPos the moment it forms
+      // (matching the generator's signal check).
+      const age = this.t - th.bornAt;
+      th.pos = add(spec.spawnPos, scale(this.scn.wind, age));
+      th.strengthNow = th.strength * smoothstep(0, spec.rampTime, age);
       this.trailClock += dt;
       if (this.trailClock >= 0.25) {
         this.trailClock = 0;

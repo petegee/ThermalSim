@@ -333,6 +333,11 @@ canvas {
   min-width: 0;
 }
 
+/* An odd last row gets the full width. */
+.sum-grid div:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 .sum-grid dt {
   font-size: 11px;
   color: var(--muted);

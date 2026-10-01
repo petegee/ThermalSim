@@ -24,6 +24,10 @@ import {
   THERMAL_CLASSES,
   EASY_PASS,
   EASY_LEAD,
+  RING,
+  DEFAULT_GUSTINESS,
+  MIN_SIGNAL,
+  offField,
 } from '../js/scenario.js';
 
 const FIELDS = [
@@ -62,7 +66,7 @@ test('inflow peaks at the core edge and decays outside', () => {
 test('outside the core, the third vector (C − B) points at the thermal when air is smooth', () => {
   let checked = 0;
   for (let seed = 1; seed <= 160; seed++) {
-    const scn = createScenario(seed, { gustiness: 0, layout: seed % 2 ? 'poles' : 'pilot' });
+    const scn = createScenario(seed, { gustiness: 0, layout: ['poles', 'ring', 'pilot'][seed % 3] });
     scn.thermal = thermalAt(scn.thermalSpec.spawnPos.x, scn.thermalSpec.spawnPos.y);
     for (const pole of scn.poles) {
       const felt = localWind(scn, pole.pos, 3);
@@ -75,7 +79,7 @@ test('outside the core, the third vector (C − B) points at the thermal when ai
       checked++;
     }
   }
-  assert.ok(checked > 150, `only ${checked} cases checked`);
+  assert.ok(checked > 300, `only ${checked} cases checked`);
 });
 
 test('streamer droops in light air: short below lift speed, linear above', () => {
@@ -169,7 +173,7 @@ test('thermal strength classes: stronger thermals pull harder and from further o
 });
 
 test('easy mode: the thermal forms upwind of the streamers and passes close by', () => {
-  for (const layout of ['poles', 'pilot']) {
+  for (const layout of ['poles', 'ring', 'pilot']) {
     for (const field of FIELDS) {
       for (let seed = 1; seed <= 200; seed++) {
         const scn = createScenario(seed, { field, layout, easy: true });
@@ -225,6 +229,18 @@ test('pilot-streamer mode: one streamer just upwind and to the right of the pilo
   }
 });
 
+test('ring mode: six streamers evenly round the pilot, upwind and downwind', () => {
+  for (let seed = 1; seed <= 100; seed++) {
+    const scn = createScenario(seed, { layout: 'ring' });
+    assert.equal(scn.poles.length, RING.count);
+    for (const p of scn.poles) assert.ok(Math.abs(len(p.pos) - RING.radius) < 1e-9);
+    const along = scn.poles.map((p) => dot(p.pos, scn.upwind) / RING.radius);
+    assert.equal(along.filter((a) => a > 0.5).length, 2, 'two upwind');
+    assert.equal(along.filter((a) => Math.abs(a) < 0.1).length, 2, 'two crosswind');
+    assert.equal(along.filter((a) => a < -0.5).length, 2, 'two downwind');
+  }
+});
+
 test('thermal tracks: form on (or just upwind of) the field with enough drift left to read', () => {
   for (const field of FIELDS) {
     for (let seed = 1; seed <= 400; seed++) {
@@ -242,14 +258,17 @@ test('thermal tracks: form on (or just upwind of) the field with enough drift le
   }
 });
 
-test('thermal tracks spread across the whole field, not just past the pilot', () => {
+// Weak thermals have to pass close to a streamer to be readable (see the
+// signal test), but a strong one can be read from well across the field. The
+// ring has streamers downwind too, so thermals can also form behind you.
+test('strong thermal tracks spread across the whole field, not just past the pilot', () => {
   for (const field of FIELDS) {
     const offsets = [];
     let formsDownwind = 0;
     let driftsIn = 0;
     const N = 600;
     for (let seed = 1; seed <= N; seed++) {
-      const scn = createScenario(seed, { field });
+      const scn = createScenario(seed, { field, thermalClass: 'strong', layout: 'ring' });
       const sp = scn.thermalSpec.spawnPos;
       offsets.push(dot(sp, scn.left)); // closest approach to the pilot (signed)
       if (dot(sp, scn.upwind) < 0) formsDownwind++;
@@ -257,11 +276,48 @@ test('thermal tracks spread across the whole field, not just past the pilot', ()
     }
     const far = offsets.filter((c) => Math.abs(c) > 40).length / N;
     const short = Math.min(field.halfW, field.halfH);
-    assert.ok(far > 0.35, `only ${(far * 100).toFixed(0)}% of tracks pass > 40 m from the pilot`);
-    assert.ok(Math.max(...offsets) > short * 0.8 && Math.min(...offsets) < -short * 0.8, 'tracks reach both sides');
+    assert.ok(far > 0.3, `only ${(far * 100).toFixed(0)}% of tracks pass > 40 m from the pilot`);
+    assert.ok(Math.max(...offsets) > short * 0.7 && Math.min(...offsets) < -short * 0.7, 'tracks reach both sides');
     assert.ok(formsDownwind / N > 0.1, 'some thermals form downwind of the pilot');
     assert.ok(driftsIn / N > 0.03, 'some thermals drift in from beyond the upwind edge');
   }
+});
+
+test('every thermal visibly shifts a streamer’s angle and speed while it is on the field', () => {
+  let rounds = 0;
+  let short = 0;
+  for (const layout of ['poles', 'ring', 'pilot']) {
+    for (const thermalClass of ['weak', 'medium', 'strong']) {
+      for (const windClass of ['slow', 'moderate']) {
+        for (let seed = 1; seed <= 12; seed++) {
+          // Play the round without gusts and watch the raw wind at each streamer.
+          const scn = createScenario(seed, { layout, thermalClass, windClass, gustiness: 0 });
+          const W = len(scn.wind);
+          const round = new Round(scn);
+          const peak = scn.poles.map(() => ({ angle: 0, speed: 0 }));
+          while (round.phase !== 'over' && round.t < 600) {
+            round.step(0.25);
+            const th = round.thermal;
+            if (!th || offField(th.pos, 0, scn.field)) continue;
+            scn.poles.forEach((p, i) => {
+              const f = round.wind(p.pos);
+              peak[i].speed = Math.max(peak[i].speed, Math.abs(len(f) - W) / W);
+              if (len(f) > 0.3) {
+                const a = (Math.acos(Math.min(1, dot(f, scn.wind) / (len(f) * W))) * 180) / Math.PI;
+                peak[i].angle = Math.max(peak[i].angle, a);
+              }
+            });
+          }
+          rounds++;
+          // 2% slack: the round steps more coarsely than the generator's check.
+          const ok = peak.some((pk) => pk.angle >= MIN_SIGNAL.angle * 0.98 && pk.speed >= MIN_SIGNAL.speed * 0.98);
+          if (!ok) short++;
+          assert.ok(scn.thermalSpec.signal.score >= 1, `${layout}/${thermalClass}/${windClass} seed ${seed}: generator`);
+        }
+      }
+    }
+  }
+  assert.equal(short, 0, `${short}/${rounds} rounds never showed a ${MIN_SIGNAL.angle}° and ${MIN_SIGNAL.speed * 100}% shift`);
 });
 
 test('same seed reproduces the same scenario', () => {
@@ -325,6 +381,50 @@ test('score falls off with distance', () => {
   assert.ok(scoreGuess(5) > 85);
   assert.ok(scoreGuess(12) < 70 && scoreGuess(12) > 50);
   assert.ok(scoreGuess(40) < 3);
+});
+
+test('gusts shift both speed and direction, crosswind a bit less than along-wind', () => {
+  const scn = createScenario(3, { gustiness: 0.1 });
+  let along = 0;
+  let cross = 0;
+  let n = 0;
+  for (let t = 0; t < 400; t += 0.37) {
+    const g = scn.gusts.sample({ x: 5, y: 20 }, t, scn.wind);
+    along += dot(g, scn.upwind) ** 2;
+    cross += dot(g, scn.left) ** 2;
+    n++;
+  }
+  const ratio = Math.sqrt(cross / along);
+  assert.ok(ratio > 0.45 && ratio < 1, `crosswind/along-wind RMS ${ratio.toFixed(2)}`);
+});
+
+test('at default gustiness the third vector mostly survives the turbulence, even 50–70 m out', () => {
+  const near = [];
+  const far = [];
+  for (let seed = 1; seed <= 50; seed++) {
+    const scn = createScenario(seed, { layout: 'poles', field: { halfW: 97, halfH: 70 } });
+    assert.equal(scn.gustiness, DEFAULT_GUSTINESS);
+    const round = new Round(scn);
+    const st = scn.poles.map((p) => new Streamer(p.pos, round.wind(p.pos)));
+    const dt = 1 / 20;
+    let k = 0;
+    while (round.phase !== 'over' && round.t < 300) {
+      round.step(dt);
+      for (const s of st) s.update(dt, round.wind(s.pole));
+      const th = round.thermal;
+      if (!th || th.strengthNow < 0.9 * th.strength || k++ % 10) continue;
+      for (const s of st) {
+        const d = dist(th.pos, s.pole);
+        if (d < 1.5 * th.radius || d > 70) continue;
+        const third = sub(streamerTipOffset(s.v), streamerTipOffset(scn.wind));
+        const ok = dot(norm(third), norm(sub(th.pos, s.pole))) > Math.cos(Math.PI / 6);
+        (d < 50 ? near : far).push(ok);
+      }
+    }
+  }
+  const share = (a) => a.filter(Boolean).length / a.length;
+  assert.ok(share(near) > 0.88, `within 50 m: ${(share(near) * 100).toFixed(0)}% within 30°`);
+  assert.ok(share(far) > 0.75, `50–70 m: ${(share(far) * 100).toFixed(0)}% within 30°`);
 });
 
 test('gusts are modest relative to ambient', () => {

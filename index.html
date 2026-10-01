@@ -58,8 +58,9 @@
             <span class="seed" id="seedLabel" title="Scenario seed: add ?seed= to the URL to replay it"></span>
           </div>
           <div class="segmented mode-seg" role="radiogroup" aria-label="Streamer layout" id="modeSeg">
-            <button role="radio" data-v="poles" aria-checked="true">Two upwind poles</button>
-            <button role="radio" data-v="pilot">Pilot streamer</button>
+            <button role="radio" data-v="poles" aria-checked="true">Two poles</button>
+            <button role="radio" data-v="ring">Ring of six</button>
+            <button role="radio" data-v="pilot">At pilot</button>
           </div>
           <p class="hint" id="instructions"></p>
           <div class="btn-row">
@@ -94,7 +95,7 @@
           <label class="toggle">
             <input type="checkbox" id="aidProject" />
             <span class="switch"></span>
-            <span><strong>Project third vectors</strong><small>Extend them toward the lift. With two poles, they cross at the thermal</small></span>
+            <span><strong>Project third vectors</strong><small>Extend them toward the lift. With two or more streamers, they cross at the thermal</small></span>
           </label>
           <label class="toggle">
             <input type="checkbox" id="aidRings" />
@@ -124,8 +125,8 @@
           </div>
           <div class="field-row">
             <label class="field-label" for="gusty">Gustiness</label>
-            <input type="range" id="gusty" min="0" max="30" step="1" value="10" />
-            <output id="gustyOut" for="gusty">10%</output>
+            <input type="range" id="gusty" min="0" max="30" step="1" value="6" />
+            <output id="gustyOut" for="gusty">6%</output>
           </div>
           <label class="toggle easy-toggle">
             <input type="checkbox" id="easyMode" />
@@ -154,7 +155,7 @@
             <li>Wind <strong>drops</strong> → lift is coming from upwind. Wind <strong>picks up</strong> → it has passed and is now downwind.</li>
             <li>A <strong>big or fast-changing</strong> shift means the thermal is close. A <strong>small, slow</strong> one means it's weak or far away.</li>
             <li>Streamer goes <strong>limp</strong> → the thermal is right overhead. Expect the wind to surge back once it has passed.</li>
-            <li>Two poles give two third vectors. Where they cross is roughly where the thermal is.</li>
+            <li>Two or more streamers give several third vectors. Where they cross is roughly where the thermal is. Streamers downwind of you pick up a thermal that has already passed.</li>
             <li>With only your own streamer you get a direction. Judge the distance from how big the shift is and how fast it changes.</li>
           </ol>
           <p class="credit">Based on Joe Wurts' soaring training notes and Marcus Stent's <em>Thermal Training Notes</em> (2016).</p>

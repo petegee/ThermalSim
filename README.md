@@ -40,23 +40,48 @@ Training aids (all toggleable):
 - Projected third vectors (with two poles, where the two lines cross is the thermal)
 - Range rings
 
-Conditions for the next scenario: wind class (random / slow / moderate) and gustiness (0–30 %). Switching mode starts a new scenario straight away.
+Conditions for the next scenario:
+
+- **Wind**: random / slow / moderate.
+- **Thermal strength**: random / weak / medium / strong.
+- **Gustiness**: 0–30 %.
+- **Easy mode**: the thermal forms upwind of the streamers and its track passes within 12 m of one (or between the two poles), so you see the whole sequence as it goes by.
+
+Switching mode starts a new scenario straight away.
 
 ## The model
 
 Everything is plain vector addition (`js/physics.js`):
 
 ```
-felt wind = ambient wind + gusts + thermal inflow
+felt wind = (ambient wind + gusts) × (1 − calm) + thermal inflow
 ```
 
 - **Ambient wind**: slow is 1.5–3 m/s, moderate is 3–5 m/s, from any direction. The thermal drifts at the ambient wind velocity.
-- **Thermal track**: any line across the field parallel to the wind. The crosswind offset is spread evenly over the whole field, so it can pass far to one side of you. The thermal forms anywhere along that line, from up to 15 m beyond the upwind edge (it then drifts in) to far enough up the field that at least `max(35 m, 15 s × wind speed)` of track is left. So it can form downwind of you too.
-- **Thermal inflow**: horizontal flow toward the thermal centre. It rises linearly inside the core radius R (9–16 m) to a peak of 1.6–3 m/s at the core edge, then decays as `(R/r)^1.1` outside, a little faster than the 1/r that continuity gives. Strength ramps up over 5–9 s as the thermal forms.
-- **Gusts**: a few travelling sine waves frozen into the air mass and carried downwind, with an RMS of about 10 % of wind speed by default. Their periods are short compared with a passing thermal, so a sustained shift stands out from turbulence, as the training notes describe.
-- **Streamers**: the visible length grows linearly with wind speed, the way a real streamer lifts from hanging to flying. The tip is therefore literally the wind vector drawn from the pole, so C − B equals the inflow plus gusts. The streamer response is slightly smoothed, with a 0.35 s time constant.
+- **Thermal track**: any line across the field parallel to the wind (in easy mode, one that passes close to the streamers). The crosswind offset is spread evenly over the whole field, so it can pass far to one side of you. The thermal forms anywhere along that line, from up to 15 m beyond the upwind edge (it then drifts in) to far enough up the field that at least `max(35 m, 15 s × wind speed)` of track is left. So it can form downwind of you too.
+- **Thermal inflow**: horizontal flow toward the thermal centre. It rises linearly inside the core radius R to a peak S at the core edge, then decays as `(R/r)^1.1` outside, a little faster than the 1/r that continuity gives. Strength ramps up over 5–9 s as the thermal forms. Stronger thermals are both faster and wider, so they pull air in from much further out:
 
-At the default gustiness, a headless check across 300 scenarios gives a median error of ~7–10° between the third vector and the true bearing when the thermal is within 35 m of a pole. It rises to ~30° beyond 50 m, where the signal gets lost in the gusts.
+  | Class | Peak inflow S | Core radius R | Inflow 50 m out (typical) |
+  | --- | --- | --- | --- |
+  | Weak | 1.2–2.0 m/s | 8–12 m | ~0.3 m/s |
+  | Medium | 1.6–3.0 m/s | 9–16 m | ~0.5 m/s |
+  | Strong | 3.0–4.5 m/s | 12–18 m | ~1 m/s |
+
+  When the thermal is upwind of a streamer and its inflow beats the ambient wind (in practice, strong thermals in a light wind), the felt wind reverses and the streamer turns round to point upwind at it.
+- **Calm under the core**: right under a thermal the air is going up, not sideways, so the ambient wind fades out in a Gaussian patch of width 0.8 R around the centre. It's about 20 % at the core edge and under 3 % beyond 1.5 R, so further out the plain vector sum holds. A thermal drifting over a streamer therefore gives the sequence pilots describe: a lull or reversal as it approaches, the streamer going limp overhead, then a surge once it has passed.
+- **Gusts**: a few travelling sine waves frozen into the air mass and carried downwind, with an RMS of about 10 % of wind speed by default. Their periods are short compared with a passing thermal, so a sustained shift stands out from turbulence, as the training notes describe.
+- **Streamers**: a real streamer hangs limp in still air and lifts as the wind picks up. Drag goes with speed squared, so below 1.5 m/s the visible length falls off as v² and the streamer droops. From 1.5 m/s up, which covers every ambient wind in the scenarios, length is linear in speed. The tip is then literally the wind vector drawn from the pole, so C − B equals the inflow plus gusts. The streamer response is slightly smoothed, with a 0.35 s time constant.
+
+At the default gustiness, a headless check across 300 scenarios per mode (on a 194 × 140 m field) gives these median errors between the third vector and the true bearing to the thermal:
+
+| Distance from the streamer | Error |
+| --- | --- |
+| Inside 1.5 core radii | 13–14° |
+| 1.5 R to 35 m | 11–12° |
+| 35–50 m | ~18° |
+| Beyond 50 m | 32–36° |
+
+Inside the core the streamer is mostly limp, and far away the signal gets lost in the gusts. With the thermal directly overhead, the median streamer length is under 1 m, against about 10 m in a 3 m/s breeze.
 
 Scoring: `100 · exp(−d² / 2·12²)` for miss distance d in metres. Ratings are based on whether you'd have been in the core, in the lift, or on its edge.
 

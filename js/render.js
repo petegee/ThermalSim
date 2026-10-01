@@ -1,7 +1,7 @@
 // Canvas renderer: stylised top-down flying field.
 
 import { add, sub, scale, len, norm, lerp } from './vec.js';
-import { thermalInflow, streamerTipOffset, mulberry32 } from './physics.js';
+import { localWind, streamerTipOffset, mulberry32 } from './physics.js';
 
 export const COLORS = {
   ambient: '#5cc8ff', // average wind (blue, as in Joe's diagram)
@@ -220,12 +220,16 @@ export class Renderer {
     const speed = len(s.v);
     const N = 16;
     const pts = [];
-    // Light air: the streamer droops and wanders lazily; stronger air: tighter, faster flutter.
+    // Light air: the streamer droops and wanders lazily; stronger air: tighter,
+    // faster flutter. The sideways wiggle never exceeds a fraction of the
+    // length, so a drooping streamer stays visibly short.
     const lazy = Math.max(0, 1.4 - speed);
+    const maxAmp = 0.35 * L;
     for (let i = 0; i <= N; i++) {
       const t = i / N;
-      const amp = Math.pow(t, 1.3) * (1.2 + 0.07 * L + lazy * 3);
-      const wave = Math.sin(s.phase - t * 7.5) * amp + Math.sin(s.wander * 1.7 + t * 2.5) * lazy * 2.5 * t;
+      const amp = Math.pow(t, 1.3) * Math.min(1.2 + 0.07 * L + lazy * 3, maxAmp);
+      const drift = Math.min(lazy * 2.5, maxAmp) * t;
+      const wave = Math.sin(s.phase - t * 7.5) * amp + Math.sin(s.wander * 1.7 + t * 2.5) * drift;
       pts.push({ x: p.x + d.x * L * t + n.x * wave, y: p.y + d.y * L * t + n.y * wave });
     }
     return { pts, L };
@@ -238,12 +242,20 @@ export class Renderer {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    if (L < 3) {
-      // Hanging limp: a little knot of ribbon at the pole.
+    if (L < 4) {
+      // Hanging limp down the pole: from above, just a bunched-up bit of
+      // ribbon at the top, nudged a touch whichever way the air is drifting.
       const p = pts[0];
+      const tip = pts[pts.length - 1];
+      const cx = (p.x + tip.x) / 2 + 1;
+      const cy = (p.y + tip.y) / 2 + 1;
+      ctx.fillStyle = COLORS.streamerEdge;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3.6, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = COLORS.streamer;
       ctx.beginPath();
-      ctx.arc(p.x + 1.5, p.y + 1.5, 3.2, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 2.6, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
       return;
@@ -497,9 +509,11 @@ export class Renderer {
         const a = ring.off + (i / ring.n) * Math.PI * 2;
         const O = add(th.pos, { x: Math.cos(a) * ring.r, y: Math.sin(a) * ring.r });
         if (Math.abs(O.x) > this.field.halfW + 4 || Math.abs(O.y) > this.field.halfH + 4) continue;
-        const I = thermalInflow(th, O);
+        // Felt wind without gusts; the yellow third vector is felt − ambient
+        // (the inflow, plus the calm-under-the-core term close in).
+        const F = localWind(scn, O, null, th);
         const Wtip = add(O, scale(scn.wind, k));
-        const Ftip = add(Wtip, scale(I, k));
+        const Ftip = add(O, scale(F, k));
         const o = this.toScreen(O);
         // Felt wind underneath and thinner, so the blue + yellow pair stays readable on top.
         this.arrow(o, this.toScreen(Ftip), COLORS.felt, 1.4, 6, 0.85);

@@ -2,7 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { sub, len, norm, dot, dist, headingOf, angleDiff } from '../js/vec.js';
-import { thermalInflow, inflowProfile, streamerTipOffset, localWind } from '../js/physics.js';
+import {
+  thermalInflow,
+  inflowProfile,
+  streamerTipOffset,
+  streamerLength,
+  localWind,
+  Streamer,
+  STREAMER_LIFT_MS,
+} from '../js/physics.js';
 import {
   createScenario,
   Round,
@@ -13,6 +21,9 @@ import {
   estimatedCrossingTime,
   fieldChord,
   minTrackOnField,
+  THERMAL_CLASSES,
+  EASY_PASS,
+  EASY_LEAD,
 } from '../js/scenario.js';
 
 const FIELDS = [
@@ -48,17 +59,130 @@ test('inflow peaks at the core edge and decays outside', () => {
   assert.ok(inflowProfile(60, 12) < 0.2);
 });
 
-test('third vector (C − B) equals the inflow and points at the thermal when air is smooth', () => {
-  for (let seed = 1; seed <= 80; seed++) {
+test('outside the core, the third vector (C − B) points at the thermal when air is smooth', () => {
+  let checked = 0;
+  for (let seed = 1; seed <= 160; seed++) {
     const scn = createScenario(seed, { gustiness: 0, layout: seed % 2 ? 'poles' : 'pilot' });
     scn.thermal = thermalAt(scn.thermalSpec.spawnPos.x, scn.thermalSpec.spawnPos.y);
     for (const pole of scn.poles) {
       const felt = localWind(scn, pole.pos, 3);
-      const B = streamerTipOffset(scn.wind);
-      const C = streamerTipOffset(felt);
-      const third = sub(C, B);
+      // Inside 1.5 core radii the calm patch matters; below lift speed the
+      // streamer droops non-linearly. Both are covered by their own tests.
+      if (dist(pole.pos, scn.thermal.pos) < 1.5 * scn.thermal.radius || len(felt) < STREAMER_LIFT_MS) continue;
+      const third = sub(streamerTipOffset(felt), streamerTipOffset(scn.wind));
       const toThermal = norm(sub(scn.thermal.pos, pole.pos));
-      assert.ok(dot(norm(third), toThermal) > 0.999, `seed ${seed} pole ${pole.id}`);
+      assert.ok(dot(norm(third), toThermal) > 0.995, `seed ${seed} pole ${pole.id}`);
+      checked++;
+    }
+  }
+  assert.ok(checked > 150, `only ${checked} cases checked`);
+});
+
+test('streamer droops in light air: short below lift speed, linear above', () => {
+  assert.equal(streamerLength(0), 0);
+  assert.ok(streamerLength(0.5) < 0.15 * streamerLength(STREAMER_LIFT_MS), 'nearly limp at 0.5 m/s');
+  assert.ok(Math.abs(streamerLength(STREAMER_LIFT_MS - 1e-9) - streamerLength(STREAMER_LIFT_MS)) < 1e-6, 'continuous');
+  assert.ok(Math.abs(streamerLength(4) / streamerLength(2) - 2) < 1e-9, 'linear above lift speed');
+});
+
+test('the streamer goes limp with the thermal directly overhead', () => {
+  const scn = createScenario(11, { gustiness: 0.1 });
+  const pole = scn.poles[0].pos;
+  scn.thermal = thermalAt(pole.x, pole.y, 2.5, 12);
+  for (let t = 0; t < 30; t += 1.7) {
+    const felt = localWind(scn, pole, t);
+    assert.ok(len(felt) < 0.05, `felt ${len(felt)} m/s at t=${t}`);
+    assert.ok(len(streamerTipOffset(felt)) < 0.01, 'limp');
+  }
+});
+
+test('a thermal drifting over a pole: lull, limp overhead, then a surge', () => {
+  for (const seed of [3, 8, 21]) {
+    const scn = createScenario(seed, { gustiness: 0, layout: 'pilot' });
+    const pole = scn.poles[0].pos;
+    const ambient = len(scn.wind);
+    const R = 12;
+    const at = (along) => {
+      const c = { x: pole.x + scn.upwind.x * along, y: pole.y + scn.upwind.y * along };
+      scn.thermal = thermalAt(c.x, c.y, 2.5, R);
+      return len(localWind(scn, pole, 0));
+    };
+    assert.ok(at(1.5 * R) < ambient * 0.7, `seed ${seed}: lull as it approaches`);
+    assert.ok(at(0) < 0.05, `seed ${seed}: limp overhead`);
+    assert.ok(at(-1.5 * R) > ambient * 1.3, `seed ${seed}: surge once it has passed`);
+  }
+});
+
+test('inflow stronger than the wind, thermal directly upwind: the streamer turns round', () => {
+  const scn = createScenario(4, { gustiness: 0, windClass: 'slow', layout: 'pilot' });
+  const pole = scn.poles[0].pos;
+  const R = 15;
+  const S = len(scn.wind) + 1.5; // inflow comfortably beats the wind
+  // Strongest just outside the core edge, where the inflow peaks.
+  for (const r of [R, 1.1 * R, 1.2 * R]) {
+    const c = { x: pole.x + scn.upwind.x * r, y: pole.y + scn.upwind.y * r };
+    scn.thermal = thermalAt(c.x, c.y, S, R);
+    const felt = localWind(scn, pole, 0);
+    assert.ok(dot(felt, scn.upwind) > 0, `r=${r}: blowing upwind, toward the thermal`);
+    assert.ok(len(streamerTipOffset(felt)) > 1, `r=${r}: lifted enough to see`);
+  }
+});
+
+test('strong thermals out in a light wind often turn the streamer round as they approach', () => {
+  let reversed = 0;
+  const N = 40;
+  for (let seed = 1; seed <= N; seed++) {
+    const scn = createScenario(seed, { windClass: 'slow', thermalClass: 'strong', layout: 'pilot', easy: true });
+    const round = new Round(scn);
+    const s = new Streamer(scn.poles[0].pos, round.wind(scn.poles[0].pos));
+    let seen = false;
+    while (round.phase !== 'over' && round.t < 300 && !seen) {
+      round.step(1 / 30);
+      s.update(1 / 30, round.wind(s.pole));
+      const tip = streamerTipOffset(s.v);
+      seen = dot(tip, scn.upwind) > 1.5; // visibly pointing upwind
+    }
+    if (seen) reversed++;
+  }
+  assert.ok(reversed / N > 0.5, `only ${reversed}/${N} reversed`);
+});
+
+test('thermal strength classes: stronger thermals pull harder and from further out', () => {
+  const counts = { weak: 0, medium: 0, strong: 0 };
+  for (let seed = 1; seed <= 300; seed++) {
+    for (const cls of ['weak', 'medium', 'strong']) {
+      const { radius, strength } = createScenario(seed, { thermalClass: cls }).thermalSpec;
+      const tc = THERMAL_CLASSES[cls];
+      assert.ok(radius >= tc.radius[0] && radius <= tc.radius[1]);
+      assert.ok(strength >= tc.strength[0] && strength <= tc.strength[1]);
+    }
+    counts[createScenario(seed, { thermalClass: 'random' }).thermalClass]++;
+  }
+  assert.ok(Object.values(counts).every((n) => n > 60), `random picks all three: ${JSON.stringify(counts)}`);
+  const mid = ([a, b]) => (a + b) / 2;
+  const at50 = (cls) => {
+    const tc = THERMAL_CLASSES[cls];
+    return len(thermalInflow(thermalAt(50, 0, mid(tc.strength), mid(tc.radius)), { x: 0, y: 0 }));
+  };
+  assert.ok(at50('strong') > 1.6 * at50('medium') && at50('medium') > 1.6 * at50('weak'), 'reach grows with strength');
+  assert.ok(at50('strong') > 0.9, 'a strong thermal is still pulling ~1 m/s at 50 m');
+});
+
+test('easy mode: the thermal forms upwind of the streamers and passes close by', () => {
+  for (const layout of ['poles', 'pilot']) {
+    for (const field of FIELDS) {
+      for (let seed = 1; seed <= 200; seed++) {
+        const scn = createScenario(seed, { field, layout, easy: true });
+        const sp = scn.thermalSpec.spawnPos;
+        const cross = scn.poles.map((p) => dot(p.pos, scn.left));
+        const c = dot(sp, scn.left);
+        const closest = Math.min(...cross.map((pc) => Math.abs(pc - c)));
+        const between = c >= Math.min(...cross) && c <= Math.max(...cross);
+        assert.ok(closest <= EASY_PASS + 1e-6 || between, `${layout} seed ${seed}: passes ${closest.toFixed(1)} m away`);
+        const lead = Math.min(...scn.poles.map((p) => dot(sub(sp, p.pos), scn.upwind)));
+        assert.ok(lead >= EASY_LEAD.min - 1e-6 && lead <= EASY_LEAD.max + 1e-6, `${layout} seed ${seed}: lead ${lead}`);
+        assert.ok(estimatedCrossingTime(scn) > 15);
+      }
     }
   }
 });

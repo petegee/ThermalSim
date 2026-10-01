@@ -1,15 +1,19 @@
 // Wind-field model.
 //
-// Local wind anywhere on the field is plain vector addition, exactly as in
-// Joe Wurts' third-vector diagram:
+// Local wind anywhere on the field is plain vector addition, as in Joe Wurts'
+// third-vector diagram:
 //
 //     felt wind  =  ambient wind  +  gusts  +  thermal inflow
 //
 // The thermal inflow at a point always points at the thermal centre, so the
 // difference between what a streamer shows (C) and where it would sit in the
-// ambient wind (B) — the "third vector" — points at the thermal.
+// ambient wind (B), the "third vector", points at the thermal.
+//
+// One refinement: right under the core the air is going up, not sideways, so
+// the ambient wind (and its gusts) fades out there and a streamer goes limp
+// as the thermal passes overhead. Outside the core this is negligible.
 
-import { add, scale, sub, len, norm } from './vec.js';
+import { add, scale, sub, len, norm, dist } from './vec.js';
 
 // Deterministic PRNG so a scenario can be replayed from its seed.
 export function mulberry32(seed) {
@@ -48,6 +52,16 @@ export function thermalInflow(thermal, p) {
   const r = len(toCentre);
   if (r < 1e-6) return { x: 0, y: 0 };
   return scale(norm(toCentre), thermal.strengthNow * inflowProfile(r, thermal.radius));
+}
+
+// How much of the ambient wind is cancelled at p, 0..1: a calm patch under the
+// core, Gaussian with width CALM_RADIUS × core radius, growing as the thermal
+// builds. At the core edge it's ~20%, and beyond 1.5 R it's under 3%.
+export const CALM_RADIUS = 0.8;
+export function thermalCalm(thermal, p) {
+  if (!thermal || thermal.strengthNow <= 0) return 0;
+  const r = dist(thermal.pos, p) / (CALM_RADIUS * thermal.radius);
+  return (thermal.strengthNow / thermal.strength) * Math.exp(-r * r);
 }
 
 // Gusts: a handful of travelling sine waves frozen into the air mass and
@@ -107,26 +121,35 @@ export class GustField {
   }
 }
 
-// The total wind at a point.
+// The total wind at a point. Pass t = null to leave out the gusts.
 export function localWind(scn, p, t, thermal = scn.thermal) {
-  return add(add(scn.wind, scn.gusts.sample(p, t, scn.wind)), thermalInflow(thermal, p));
+  const ambient = t == null ? scn.wind : add(scn.wind, scn.gusts.sample(p, t, scn.wind));
+  return add(scale(ambient, 1 - thermalCalm(thermal, p)), thermalInflow(thermal, p));
 }
 
 // ---- Streamer model --------------------------------------------------------
 //
 // A real streamer hangs down in still air and lifts toward horizontal as the
-// wind picks up, so from above its visible length grows with wind speed. We
-// keep that relationship linear so the streamer tip is literally the wind
-// vector drawn from the pole — which is what makes the B→C third vector
-// point at the thermal.
+// wind picks up, so from above its visible length grows with wind speed.
+// Drag goes with speed squared, so in light air it barely lifts: below
+// STREAMER_LIFT_MS the length falls off as v², and the streamer hangs limp
+// near zero. Above that (every ambient wind the scenarios use) length is
+// linear in speed, so the streamer tip is literally the wind vector drawn
+// from the pole, which is what makes the B→C third vector point at the thermal.
 
 export const STREAMER_M_PER_MS = 3.4; // metres of (stylised, exaggerated) streamer per m/s
+export const STREAMER_LIFT_MS = 1.5;
 export const STREAMER_MAX_MS = 10;
+
+// Visible streamer length (m) for a wind speed (m/s).
+export function streamerLength(s) {
+  const eff = s < STREAMER_LIFT_MS ? (s * s) / STREAMER_LIFT_MS : Math.min(s, STREAMER_MAX_MS);
+  return eff * STREAMER_M_PER_MS;
+}
 
 export function streamerTipOffset(windVec) {
   const s = len(windVec);
-  const k = s > STREAMER_MAX_MS ? (STREAMER_MAX_MS / s) * STREAMER_M_PER_MS : STREAMER_M_PER_MS;
-  return scale(windVec, k);
+  return s < 1e-9 ? { x: 0, y: 0 } : scale(windVec, streamerLength(s) / s);
 }
 
 export class Streamer {

@@ -1,4 +1,4 @@
-import { createScenario, Round, randomSeed, WIND_CLASSES, FIELD_SHORT_HALF } from './scenario.js';
+import { createScenario, Round, randomSeed, WIND_CLASSES, THERMAL_CLASSES, FIELD_SHORT_HALF } from './scenario.js';
 import { Streamer } from './physics.js';
 import { Renderer } from './render.js';
 import { FlowParticles } from './flow.js';
@@ -30,6 +30,8 @@ const savedSettings = store.get('tvt.settings', {});
 const settings = {
   mode: 'poles',
   windClass: 'random',
+  thermalClass: 'medium',
+  easy: false,
   gustiness: 10,
   speed: 1,
   ...savedSettings,
@@ -76,8 +78,10 @@ function currentField() {
 function newRound(seed = randomSeed(), opts = null) {
   const scenarioOpts = opts ?? {
     windClass: settings.windClass,
+    thermalClass: settings.thermalClass,
     gustiness: settings.gustiness / 100,
     layout: settings.mode,
+    easy: settings.easy,
     field: currentField(),
   };
   const scn = createScenario(seed, scenarioOpts);
@@ -170,7 +174,7 @@ function onOver() {
   const r = resultSummary();
   const scn = round.scn;
   const spec = scn.thermalSpec;
-  $('sumEyebrow').textContent = `Round ${roundNo} · ${r.points} pts`;
+  $('sumEyebrow').textContent = `Round ${roundNo} · ${r.points} pts${scn.easy ? ' · easy mode' : ''}`;
   $('sumTitle').textContent = r.title;
 
   const rows = [
@@ -178,7 +182,7 @@ function onOver() {
     ['Miss distance', round.guess?.distance != null ? `${round.guess.distance.toFixed(1)} m` : '–'],
     ['Read time', round.guess?.readTime != null ? `${round.guess.readTime.toFixed(1)} s after it formed` : '–'],
     ['Average wind', `${scn.windSpeed.toFixed(1)} m/s from ${compassPoint(scn.windFrom)}`],
-    ['Thermal inflow', `${spec.strength.toFixed(1)} m/s peak`],
+    ['Thermal', `${THERMAL_CLASSES[scn.thermalClass].label}, ${spec.strength.toFixed(1)} m/s peak inflow`],
     ['Core size', `${Math.round(spec.radius * 2)} m across`],
   ];
   $('sumGrid').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
@@ -328,6 +332,14 @@ function bindSegmented(id, key, parse = (v) => v, onChange = null) {
 }
 bindSegmented('speedSeg', 'speed', Number);
 bindSegmented('windSeg', 'windClass');
+bindSegmented('strengthSeg', 'thermalClass');
+
+const easyBox = $('easyMode');
+easyBox.checked = !!settings.easy;
+easyBox.addEventListener('change', () => {
+  settings.easy = easyBox.checked;
+  saveSettings();
+});
 // Switching layout starts a fresh scenario straight away.
 bindSegmented('modeSeg', 'mode', String, () => newRound());
 

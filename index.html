@@ -105,7 +105,7 @@
 
         <section class="card">
           <h3>Conditions <span class="muted">· next scenario</span></h3>
-          <div class="field-row">
+          <div class="field-row stack">
             <span class="field-label">Wind</span>
             <div class="segmented" role="radiogroup" aria-label="Wind strength" id="windSeg">
               <button role="radio" data-v="random" aria-checked="true">Random</button>
@@ -113,11 +113,25 @@
               <button role="radio" data-v="moderate">Moderate</button>
             </div>
           </div>
+          <div class="field-row stack">
+            <span class="field-label">Thermal strength</span>
+            <div class="segmented" role="radiogroup" aria-label="Thermal strength" id="strengthSeg">
+              <button role="radio" data-v="random">Random</button>
+              <button role="radio" data-v="weak">Weak</button>
+              <button role="radio" data-v="medium" aria-checked="true">Medium</button>
+              <button role="radio" data-v="strong">Strong</button>
+            </div>
+          </div>
           <div class="field-row">
             <label class="field-label" for="gusty">Gustiness</label>
             <input type="range" id="gusty" min="0" max="30" step="1" value="10" />
             <output id="gustyOut" for="gusty">10%</output>
           </div>
+          <label class="toggle easy-toggle">
+            <input type="checkbox" id="easyMode" />
+            <span class="switch"></span>
+            <span><strong>Easy mode</strong><small>The thermal forms upwind and passes close to the streamers</small></span>
+          </label>
         </section>
 
         <section class="card legend">
@@ -139,6 +153,7 @@
             <li>The vector from <strong>B</strong> to <strong>C</strong> is the third vector, and it <strong>points toward the lift</strong>.</li>
             <li>Wind <strong>drops</strong> → lift is coming from upwind. Wind <strong>picks up</strong> → it has passed and is now downwind.</li>
             <li>A <strong>big or fast-changing</strong> shift means the thermal is close. A <strong>small, slow</strong> one means it's weak or far away.</li>
+            <li>Streamer goes <strong>limp</strong> → the thermal is right overhead. Expect the wind to surge back once it has passed.</li>
             <li>Two poles give two third vectors. Where they cross is roughly where the thermal is.</li>
             <li>With only your own streamer you get a direction. Judge the distance from how big the shift is and how fast it changes.</li>
           </ol>

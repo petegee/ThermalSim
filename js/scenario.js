@@ -1,7 +1,7 @@
 // Scenario generation and the round state machine. No DOM in here so it can be
 // unit-tested under Node.
 
-import { add, scale, dist, perpLeft, norm, fromHeading } from './vec.js';
+import { add, scale, dot, dist, perpLeft, norm, fromHeading } from './vec.js';
 import { mulberry32, randRange, smoothstep, GustField, localWind } from './physics.js';
 
 // The visible field is a rectangle centred on the pilot. Its shorter side
@@ -14,6 +14,24 @@ export const WIND_CLASSES = {
   slow: { min: 1.5, max: 3.0, label: 'Slow' },
   moderate: { min: 3.0, max: 5.0, label: 'Moderate' },
 };
+
+// Thermal strength: peak inflow at the core edge (m/s) and core radius (m).
+// Inflow decays as (R/r)^1.1 outside the core, so a stronger, wider thermal
+// pulls air in from much further out: for a mid-range thermal of each class,
+// inflow is still about 0.27, 0.5 and 1 m/s 50 m from the centre. A strong thermal upwind of a
+// streamer often out-pulls a light wind and turns the streamer round.
+export const THERMAL_CLASSES = {
+  weak: { strength: [1.2, 2.0], radius: [8, 12], label: 'Weak' },
+  medium: { strength: [1.6, 3.0], radius: [9, 16], label: 'Medium' },
+  strong: { strength: [3.0, 4.5], radius: [12, 18], label: 'Strong' },
+};
+
+// Easy mode: the track passes within EASY_PASS metres of a streamer (or
+// between the two poles) and the thermal forms between EASY_LEAD.min and
+// EASY_LEAD.max metres upwind of the streamers, so you see the whole
+// lull → limp → surge as it goes by.
+export const EASY_PASS = 12;
+export const EASY_LEAD = { min: 15, max: 55 };
 
 // Streamer layouts, in wind-aligned coordinates relative to the pilot.
 //   poles: two poles upwind, one each side: the classic third-vector setup.
@@ -70,8 +88,10 @@ export const minTrackOnField = (windSpeed) => Math.max(35, windSpeed * 15);
 
 // opts: {
 //   windClass: 'random' | 'slow' | 'moderate',
+//   thermalClass: 'random' | 'weak' | 'medium' | 'strong',
 //   gustiness: 0..0.35,
 //   layout: 'poles' | 'pilot',
+//   easy: boolean,
 //   field: { halfW, halfH } in metres,
 // }
 export function createScenario(seed, opts = {}) {
@@ -90,28 +110,43 @@ export function createScenario(seed, opts = {}) {
   const left = perpLeft(upwind); // pilot's left when facing into wind
   const poles = makePoles(layout, upwind, left);
 
-  // Thermal track: any line across the field parallel to the wind. Pick the
-  // crosswind offset evenly over the whole field, then a starting point
-  // anywhere along that line, from just beyond the upwind edge to far enough
-  // up the field that it stays on screen for a while.
+  // Thermal track: any line across the field parallel to the wind. Normally
+  // the crosswind offset is spread evenly over the whole field and the
+  // thermal forms anywhere along the line, from just beyond the upwind edge
+  // to far enough up the field that it stays on screen for a while. In easy
+  // mode the line passes close to a streamer and starts upwind of them.
+  const easy = !!opts.easy;
   const crossExtent = Math.abs(left.x) * field.halfW + Math.abs(left.y) * field.halfH;
+  const poleCross = poles.map((pl) => dot(pl.pos, left));
+  const crossRange = easy
+    ? [Math.min(...poleCross) - EASY_PASS, Math.max(...poleCross) + EASY_PASS]
+    : [-crossExtent, crossExtent];
+  const streamersAt = Math.min(...poles.map((pl) => dot(pl.pos, down))); // most upwind
   const minTrack = minTrackOnField(windSpeed);
   let spawnPos;
   for (let i = 0; i < 400 && !spawnPos; i++) {
-    const o = scale(left, randRange(rng, -crossExtent, crossExtent));
+    const o = scale(left, randRange(rng, crossRange[0], crossRange[1]));
     const chord = fieldChord(o, down, field);
     if (!chord || chord[1] - chord[0] < minTrack) continue; // clips a corner
-    const p = add(o, scale(down, randRange(rng, chord[0] - ENTRY_MARGIN, chord[1] - minTrack)));
+    const [lo, hi] = easy
+      ? [Math.max(chord[0] - ENTRY_MARGIN, streamersAt - EASY_LEAD.max), streamersAt - EASY_LEAD.min]
+      : [chord[0] - ENTRY_MARGIN, chord[1] - minTrack];
+    if (hi < lo) continue;
+    const p = add(o, scale(down, randRange(rng, lo, hi)));
     if (Math.min(...poles.map((pl) => dist(pl.pos, p))) < 8) continue;
     spawnPos = p;
   }
   spawnPos ??= scale(upwind, 40);
 
+  const thermalPref = opts.thermalClass ?? 'medium';
+  const thermalClass =
+    thermalPref === 'random' ? ['weak', 'medium', 'strong'][Math.floor(rng() * 3)] : thermalPref;
+  const tc = THERMAL_CLASSES[thermalClass];
   const thermalSpec = {
     spawnTime: randRange(rng, 5, 14),
     spawnPos,
-    radius: randRange(rng, 9, 16), // core radius, m
-    strength: randRange(rng, 1.6, 3.0), // peak inflow at the core edge, m/s
+    radius: randRange(rng, ...tc.radius), // core radius, m
+    strength: randRange(rng, ...tc.strength), // peak inflow at the core edge, m/s
     rampTime: randRange(rng, 5, 9), // seconds to build to full strength
   };
 
@@ -121,6 +156,8 @@ export function createScenario(seed, opts = {}) {
   return {
     seed,
     windClass,
+    thermalClass,
+    easy,
     windSpeed,
     windFrom,
     wind,

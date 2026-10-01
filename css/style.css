@@ -610,6 +610,21 @@ kbd {
   font-size: 13px;
 }
 
+.field-row.stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.field-row.stack .field-label {
+  width: auto;
+}
+
+.easy-toggle {
+  margin-top: 6px;
+}
+
 input[type='range'] {
   flex: 1;
   accent-color: var(--accent);

@@ -214,34 +214,40 @@ test('scenarios: wind is never calm or too strong, and streamers sit where they 
     assert.ok(s >= WIND_CLASSES.slow.min && s <= WIND_CLASSES.moderate.max);
     // wind blows toward (windFrom + 180)
     assert.ok(Math.abs(angleDiff(headingOf(scn.wind), (scn.windFrom + 180) % 360)) < 1e-6);
-    assert.equal(scn.poles.length, 2);
-    for (const pole of scn.poles) assert.ok(dot(pole.pos, scn.upwind) > 15, 'pole upwind');
+    assert.equal(scn.poles.length, 3);
+    for (const pole of scn.poles.filter((p) => p.id !== 'P')) assert.ok(dot(pole.pos, scn.upwind) > 15, 'pole upwind');
     // left pole is on the pilot's left when facing upwind
     const L = scn.poles.find((p) => p.id === 'L').pos;
     assert.ok(dot(L, scn.left) > 0);
   }
 });
 
-test('pilot-streamer mode: one streamer just upwind and to the right of the pilot', () => {
-  for (let seed = 1; seed <= 200; seed++) {
-    const scn = createScenario(seed, { layout: 'pilot' });
-    assert.equal(scn.poles.length, 1);
-    const p = scn.poles[0].pos;
-    assert.ok(Math.abs(dot(p, scn.upwind) - PILOT_STREAMER.upwind) < 1e-9);
-    assert.ok(Math.abs(dot(p, scn.left) + PILOT_STREAMER.right) < 1e-9, 'on the right');
-    assert.ok(len(p) > 4 && len(p) < 8, 'beside the pilot, not on top of them');
+test('every layout has the pilot streamer, just upwind and to the right of the pilot', () => {
+  for (const layout of ['poles', 'ring', 'pilot']) {
+    for (let seed = 1; seed <= 200; seed++) {
+      const scn = createScenario(seed, { layout });
+      const pilot = scn.poles.filter((p) => p.id === 'P');
+      assert.equal(pilot.length, 1, `${layout}: one pilot streamer`);
+      const p = pilot[0].pos;
+      assert.ok(Math.abs(dot(p, scn.upwind) - PILOT_STREAMER.upwind) < 1e-9);
+      assert.ok(Math.abs(dot(p, scn.left) + PILOT_STREAMER.right) < 1e-9, 'on the right');
+      assert.ok(len(p) > 4 && len(p) < 8, 'beside the pilot, not on top of them');
+    }
   }
+  assert.equal(createScenario(1, { layout: 'pilot' }).poles.length, 1, 'pilot mode: alone');
 });
 
-test('ring mode: six streamers evenly round the pilot, upwind and downwind', () => {
+test('ring mode: five streamers evenly round the pilot, upwind and downwind', () => {
   for (let seed = 1; seed <= 100; seed++) {
     const scn = createScenario(seed, { layout: 'ring' });
-    assert.equal(scn.poles.length, RING.count);
-    for (const p of scn.poles) assert.ok(Math.abs(len(p.pos) - RING.radius) < 1e-9);
-    const along = scn.poles.map((p) => dot(p.pos, scn.upwind) / RING.radius);
+    const ring = scn.poles.filter((p) => p.id !== 'P');
+    assert.equal(ring.length, RING.count);
+    for (const p of ring) assert.ok(Math.abs(len(p.pos) - RING.radius) < 1e-9);
+    const along = ring.map((p) => dot(p.pos, scn.upwind) / RING.radius);
     assert.equal(along.filter((a) => a > 0.5).length, 2, 'two upwind');
-    assert.equal(along.filter((a) => Math.abs(a) < 0.1).length, 2, 'two crosswind');
-    assert.equal(along.filter((a) => a < -0.5).length, 2, 'two downwind');
+    assert.equal(along.filter((a) => Math.abs(a) < 0.4).length, 2, 'two crosswind');
+    assert.equal(along.filter((a) => a < -0.99).length, 1, 'one dead downwind');
+    assert.deepEqual(ring.map((p) => p.label).filter((l) => l === 'downwind streamer'), ['downwind streamer']);
   }
 });
 

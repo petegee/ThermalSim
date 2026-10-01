@@ -76,9 +76,10 @@ Classes, in `scenario.js`:
 `opts`: `windClass`, `thermalClass` (each may be `'random'`), `gustiness` (fraction), `layout` (`'poles' | 'ring' | 'pilot'`), `easy`, `field`.
 
 Layouts (`makePoles`) each give `{ id, label, pos }`. `label` is lower-case and used in the summary sentence "… on the {label}".
-- `poles`: two poles 28 m upwind, ±18 m, ids `L`/`R`, the only layout with on-canvas id labels.
-- `ring`: `RING` = 6 poles at 30 m, starting 30° off upwind, so there's a pair upwind, a pair crosswind and a pair downwind. Labelled by position, e.g. "upwind-left streamer".
-- `pilot`: one streamer 3 m upwind and 4 m to the pilot's **right**, so it blows past rather than over the pilot figure. Physics is evaluated where it's drawn.
+- **Every layout includes the pilot streamer** `P` (user: it's the wind the pilot feels, and the pilot is always there): 3 m upwind and 4 m to the pilot's **right**, so it blows past rather than over the pilot figure. Physics is evaluated where it's drawn. It's last in `scn.poles` (first in `pilot`), and counts for the readability check and easy mode like any streamer.
+- `poles`: plus two poles 28 m upwind, ±18 m, ids `L`/`R`, the only streamers with on-canvas id labels.
+- `ring`: plus `RING` = 5 poles at 30 m, starting 36° off upwind, so there's a pair upwind, a pair just behind crosswind and one dead downwind. Labelled by position, e.g. "upwind-left streamer", "downwind streamer".
+- `pilot`: the pilot streamer alone ("Pilot only" in the UI).
 
 Spawn pipeline. **RNG call order defines every seed**: reordering, or adding draws before the end, changes all scenarios. That's acceptable, but deliberate.
 1. Wind class (if random) → speed → `windFrom`.

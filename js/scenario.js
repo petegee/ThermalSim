@@ -45,16 +45,18 @@ export const MIN_SPAWN_DIST = 50;
 export const PICK_MAX = 3;
 
 // Streamer layouts, in wind-aligned coordinates relative to the pilot.
-//   poles: two poles upwind, one each side: the classic third-vector setup.
-//   ring:  RING.count poles evenly round the pilot at RING.radius, starting
-//          RING.count/2 steps off dead upwind, so there's a pair upwind,
-//          crosswind and downwind (for six).
-//   pilot: a single streamer just beside the pilot (a little upwind and to
-//          the right, so it blows past rather than across the pilot figure).
+// Every layout includes the pilot's own streamer (id 'P'): it stands for the
+// wind the pilot feels, and the pilot is always there. It sits a little
+// upwind and to the right, so it blows past rather than across the figure.
+//   poles: plus two poles upwind, one each side: the classic third-vector setup.
+//   ring:  plus RING.count poles evenly round the pilot at RING.radius, half
+//          a step off dead upwind, so (for five) there's a pair upwind, a
+//          pair just behind crosswind and one dead downwind.
+//   pilot: the pilot's streamer alone.
 export const LAYOUTS = ['poles', 'ring', 'pilot'];
 export const POLE_UPWIND = 28;
 export const POLE_SPREAD = 18;
-export const RING = { count: 6, radius: 30 };
+export const RING = { count: 5, radius: 30 };
 export const PILOT_STREAMER = { upwind: 3, right: 4 };
 
 // Along-wind gust RMS as a fraction of wind speed.
@@ -68,24 +70,25 @@ export function randomSeed() {
 }
 
 function makePoles(layout, upwind, left) {
+  const { upwind: a, right } = PILOT_STREAMER;
+  const pilot = { id: 'P', label: 'pilot streamer', pos: add(scale(upwind, a), scale(left, -right)) };
   if (layout === 'ring') {
-    return Array.from({ length: RING.count }, (_, i) => {
+    const ring = Array.from({ length: RING.count }, (_, i) => {
       // Angle from dead upwind, counter-clockwise (toward the pilot's left).
       const a = ((i + 0.5) / RING.count) * Math.PI * 2;
       const pos = add(scale(upwind, RING.radius * Math.cos(a)), scale(left, RING.radius * Math.sin(a)));
       // Name it by where it stands relative to the pilot facing into wind.
       const along = Math.cos(a) > 0.5 ? 'upwind' : Math.cos(a) < -0.5 ? 'downwind' : 'crosswind';
-      const side = Math.sin(a) > 0 ? 'left' : 'right';
-      return { id: String(i + 1), label: `${along}-${side} streamer`, pos };
+      const side = Math.abs(Math.sin(a)) < 0.2 ? '' : Math.sin(a) > 0 ? '-left' : '-right';
+      return { id: String(i + 1), label: `${along}${side} streamer`, pos };
     });
+    return [...ring, pilot];
   }
-  if (layout === 'pilot') {
-    const { upwind: a, right } = PILOT_STREAMER;
-    return [{ id: 'P', label: 'pilot streamer', pos: add(scale(upwind, a), scale(left, -right)) }];
-  }
+  if (layout === 'pilot') return [pilot];
   return [
     { id: 'L', label: 'left pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, POLE_SPREAD)) },
     { id: 'R', label: 'right pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, -POLE_SPREAD)) },
+    pilot,
   ];
 }
 

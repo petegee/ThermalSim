@@ -74,9 +74,9 @@ let sessionScore = 0;
 
 const INSTRUCTIONS = {
   poles:
-    'Watch both streamers. When the air shifts, work out the third vector and <strong>click the field where you think the thermal is</strong>.',
+    'Watch both pole streamers and the one beside you. When the air shifts, work out the third vector and <strong>click the field where you think the thermal is</strong>.',
   ring:
-    'Six streamers surround you. Each one’s shift points toward the lift: upwind ones lull as it approaches, downwind ones surge once it has passed. <strong>Click where you think the thermal is</strong>.',
+    'Five streamers surround you, plus one beside you. Each one’s shift points toward the lift: upwind ones lull as it approaches, downwind ones surge once it has passed. <strong>Click where you think the thermal is</strong>.',
   pilot:
     'Watch the streamer beside you. Its shift points toward the lift, and how big and how fast it changes tells you how far away. <strong>Click where you think the thermal is</strong>.',
 };

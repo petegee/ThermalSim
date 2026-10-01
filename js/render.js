@@ -163,7 +163,7 @@ export class Renderer {
       this.drawStreamer(s);
       if (showB) this.drawBaseline(s, scn);
       if (showThird) this.drawThirdVector(s, scn, revealed);
-      this.drawPole(s, streamers.length === 2); // L/R labels only for the pair
+      this.drawPole(s, s.id === 'L' || s.id === 'R'); // labels only for the pair of poles
     }
 
     this.drawPilot(scn.upwind);

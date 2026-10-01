@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Third Vector Trainer</title>
+    <meta name="description" content="Learn Joe Wurts' third-vector method for finding thermals by reading wind shifts on streamers." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235c9e45'/%3E%3Ccircle cx='9' cy='9' r='3' fill='%23222'/%3E%3Cpath d='M9 9 Q15 13 14 22' stroke='%23ff5a1f' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Cpath d='M14 22 L24 12' stroke='%23ffd23f' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true"></span>
+        <div>
+          <h1>Third Vector Trainer</h1>
+          <p class="tagline">Find the thermal from what the streamers tell you</p>
+        </div>
+      </div>
+      <div class="scoreline" aria-live="polite">
+        <div class="stat"><span class="stat-label">Round</span><span id="roundNo" class="stat-value">1</span></div>
+        <div class="stat"><span class="stat-label">Score</span><span id="totalScore" class="stat-value">0</span></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="stage" aria-label="Flying field">
+        <div class="canvas-wrap" id="canvasWrap">
+          <canvas id="field" aria-label="Top-down view of the flying field. Click where you think the thermal is."></canvas>
+
+          <div class="hud-status" id="status">
+            <span class="dot" id="statusDot"></span>
+            <span id="statusText">Watching the air…</span>
+            <span class="timer" id="timer">0:00</span>
+          </div>
+
+          <div class="hud-wind" id="windChip" hidden></div>
+
+          <div class="toast" id="toast" hidden></div>
+
+          <div class="summary" id="summary" hidden>
+            <div class="summary-card">
+              <p class="eyebrow" id="sumEyebrow">Round complete</p>
+              <h2 id="sumTitle">In the lift</h2>
+              <dl class="sum-grid" id="sumGrid"></dl>
+              <div class="sum-actions">
+                <button class="btn primary" id="sumNext">Next scenario <kbd>N</kbd></button>
+                <button class="btn ghost" id="sumRetry">Fly this one again</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="paused" id="pausedBadge" hidden>Paused</div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <section class="card">
+          <div class="card-head">
+            <h3>Round</h3>
+            <span class="seed" id="seedLabel" title="Scenario seed: add ?seed= to the URL to replay it"></span>
+          </div>
+          <p class="hint" id="instructions">
+            Watch both streamers. When the air shifts, work out the third vector and <strong>click the field where you
+            think the thermal is</strong>.
+          </p>
+          <div class="btn-row">
+            <button class="btn" id="btnReveal">Reveal <kbd>R</kbd></button>
+            <button class="btn primary" id="btnNew">New scenario <kbd>N</kbd></button>
+          </div>
+          <div class="speed-row">
+            <button class="btn icon" id="btnPause" aria-label="Pause" title="Pause (Space)">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path id="pauseIcon" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor"/></svg>
+            </button>
+            <div class="segmented" role="radiogroup" aria-label="Simulation speed" id="speedSeg">
+              <button role="radio" data-v="0.5">½×</button>
+              <button role="radio" data-v="1" aria-checked="true">1×</button>
+              <button role="radio" data-v="2">2×</button>
+              <button role="radio" data-v="4">4×</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Training aids</h3>
+          <label class="toggle">
+            <input type="checkbox" id="aidBaseline" />
+            <span class="switch"></span>
+            <span><strong>Baseline streamer (B)</strong><small>Where each streamer would sit in the average wind</small></span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="aidThird" />
+            <span class="switch"></span>
+            <span><strong>Third vector (B→C)</strong><small>The shift from the average wind to the felt wind</small></span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="aidProject" />
+            <span class="switch"></span>
+            <span><strong>Project third vectors</strong><small>Extend both: where they cross is the thermal</small></span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" id="aidRings" />
+            <span class="switch"></span>
+            <span><strong>Range rings</strong><small>25 m and 50 m from you</small></span>
+          </label>
+        </section>
+
+        <section class="card">
+          <h3>Conditions <span class="muted">· next scenario</span></h3>
+          <div class="field-row">
+            <span class="field-label">Wind</span>
+            <div class="segmented" role="radiogroup" aria-label="Wind strength" id="windSeg">
+              <button role="radio" data-v="random" aria-checked="true">Random</button>
+              <button role="radio" data-v="slow">Slow</button>
+              <button role="radio" data-v="moderate">Moderate</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <label class="field-label" for="gusty">Gustiness</label>
+            <input type="range" id="gusty" min="0" max="30" step="1" value="10" />
+            <output id="gustyOut" for="gusty">10%</output>
+          </div>
+        </section>
+
+        <section class="card legend">
+          <h3>Reading the vectors</h3>
+          <ul>
+            <li><svg class="sw sw-ambient" viewBox="0 0 28 10" aria-hidden="true"><path d="M2 5h18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M18 1l8 4-8 4z" fill="currentColor"/></svg><span><strong>Average wind</strong>: the prevailing breeze</span></li>
+            <li><svg class="sw sw-felt" viewBox="0 0 28 10" aria-hidden="true"><path d="M2 5h18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M18 1l8 4-8 4z" fill="currentColor"/></svg><span><strong>What you feel</strong>: average wind + thermal inflow</span></li>
+            <li><svg class="sw sw-third" viewBox="0 0 28 10" aria-hidden="true"><path d="M2 5h18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M18 1l8 4-8 4z" fill="currentColor"/></svg><span><strong>Third vector</strong>: B→C, the difference; points at the lift</span></li>
+            <li><svg class="sw sw-baseline" viewBox="0 0 28 10" aria-hidden="true"><circle cx="3" cy="5" r="2.5" fill="#2a2a2a"/><path d="M6 5h15" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 3"/><circle cx="23.5" cy="5" r="2.6" fill="currentColor"/></svg><span><strong>B</strong>: where the streamer would lie in the average wind (dashed)</span></li>
+            <li><svg class="sw sw-streamer" viewBox="0 0 28 10" aria-hidden="true"><path d="M2 5c5-4 8 4 13 0s8-3 11 0" stroke="currentColor" stroke-width="3.5" fill="none" stroke-linecap="round"/></svg><span><strong>Streamer</strong>: shows the local wind; longer = stronger. Its tip is <strong>C</strong></span></li>
+          </ul>
+        </section>
+
+        <details class="card how">
+          <summary><h3>How the third vector works</h3></summary>
+          <ol>
+            <li>Learn the <strong>average wind</strong>: where each streamer normally sits (point <strong>B</strong>).</li>
+            <li>A thermal sucks air in from all sides. Near the ground that <strong>inflow</strong> adds to the wind, and the streamer moves to <strong>C</strong>.</li>
+            <li>The vector from <strong>B</strong> to <strong>C</strong> is the third vector, and it <strong>points toward the lift</strong>.</li>
+            <li>Wind <strong>drops</strong> → lift is coming from upwind. Wind <strong>picks up</strong> → it has passed and is now downwind.</li>
+            <li>A <strong>big or fast-changing</strong> shift means the thermal is close. A <strong>small, slow</strong> one means it's weak or far away.</li>
+            <li>Two poles give two third vectors. Where they cross is roughly where the thermal is.</li>
+          </ol>
+          <p class="credit">Based on Joe Wurts' soaring training notes and Marcus Stent's <em>Thermal Training Notes</em> (2016).</p>
+        </details>
+
+        <section class="card record">
+          <div class="card-head">
+            <h3>Your record</h3>
+            <button class="link" id="btnResetStats">Reset</button>
+          </div>
+          <dl class="record-grid">
+            <div><dt>Rounds</dt><dd id="recRounds">0</dd></div>
+            <div><dt>Avg score</dt><dd id="recAvg">–</dd></div>
+            <div><dt>Avg miss</dt><dd id="recDist">–</dd></div>
+            <div><dt>Best</dt><dd id="recBest">–</dd></div>
+          </dl>
+        </section>
+      </aside>
+    </main>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

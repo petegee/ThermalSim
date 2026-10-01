@@ -17,7 +17,7 @@ Browser trainer for RC sailplane pilots learning **Joe Wurts' "third vector" met
 ## Commands
 
 ```bash
-npm test                    # node --test tests/*.test.mjs, 25 tests, ~1 s
+npm test                    # node --test tests/*.test.mjs, 27 tests, ~1 s
 python3 serve.py 8000       # dev server with Cache-Control: no-store (plain http.server caches ES modules → stale code)
 node tools/accuracy.mjs 300 # third-vector accuracy by distance, per layout; rerun after any model change
 ```
@@ -62,7 +62,7 @@ felt = (ambient + gusts) × (1 − calm) + inflow          // physics.localWind(
 | Inflow | `thermalInflow`, `inflowProfile` | Toward the centre. Rises linearly to peak S at core radius R, then `(R/r)^1.1` (`INFLOW_DECAY`) | Roughly mass continuity (1/r), slightly more local |
 | Calm patch | `thermalCalm`, `CALM_RADIUS` = 0.8 | Gaussian, width 0.8R. Cancels ambient + gusts: ~20 % at R, < 3 % beyond 1.5R | User asked for the streamer to go **limp overhead**. Without it the ambient wind showed at full strength under the core. |
 | Gusts | `GustField` | 7 travelling sine modes frozen in the air and advected with the wind. Wavelengths `GUST_WAVELENGTH` 4–30 m, ω ±0.8. Along-wind RMS = gustiness × wind speed, crosswind × `GUST_CROSS` 0.7 | Joe: turbulence swamped the signal. Slow 10–70 m swirls looked like thermals. Small quick ones read as flutter. **Don't add slow, large-scale wander back.** |
-| Streamer length | `streamerLength`, `STREAMER_*` | Linear (3.4 m per m/s, exaggerated for visibility) from `STREAMER_LIFT_MS` 1.5 m/s up. Below that ∝ v² (droops), limp near 0 | Linear in the operating range means the tip *is* the wind vector, so **B→C points exactly at the thermal**. 1.5 m/s is the slowest ambient wind, so ambient is always linear. |
+| Streamer length | `streamerLength`, `STREAMER_*` | Linear (2.4 m per m/s, exaggerated for visibility) from `STREAMER_LIFT_MS` 1.5 m/s up. Below that ∝ v² (droops), limp near 0 | Linear in the operating range means the tip *is* the wind vector, so **B→C points exactly at the thermal**. 1.5 m/s is the slowest ambient wind, so ambient is always linear. |
 | Streamer display | `Streamer.update` | Low-pass, τ = 0.35 s. Flutter phase speeds up with wind | Visual only. Tip math uses the smoothed `v`. |
 | Thermal drift | `Round.step` | `pos = spawnPos + wind × age`, strength ramps (smoothstep) over `rampTime` 5–9 s | Position from age, so it sits exactly at `spawnPos` when it forms. (An off-by-one-step bug once made rounds disagree with the generator.) |
 
@@ -78,28 +78,29 @@ Classes, in `scenario.js`:
 Layouts (`makePoles`) each give `{ id, label, pos }`. `label` is lower-case and used in the summary sentence "… on the {label}".
 - `poles`: two poles 28 m upwind, ±18 m, ids `L`/`R`, the only layout with on-canvas id labels.
 - `ring`: `RING` = 6 poles at 30 m, starting 30° off upwind, so there's a pair upwind, a pair crosswind and a pair downwind. Labelled by position, e.g. "upwind-left streamer".
-- `pilot`: one streamer 4 m upwind and 6 m to the pilot's **right**, so it blows past rather than over the pilot figure. Physics is evaluated where it's drawn.
+- `pilot`: one streamer 3 m upwind and 4 m to the pilot's **right**, so it blows past rather than over the pilot figure. Physics is evaluated where it's drawn.
 
 Spawn pipeline. **RNG call order defines every seed**: reordering, or adding draws before the end, changes all scenarios. That's acceptable, but deliberate.
 1. Wind class (if random) → speed → `windFrom`.
 2. Thermal class (if random) → `spawnTime` (5–14 s quiet spell first) → radius → strength → `rampTime`.
-3. Candidate loop (≤ 400 tries). Pick a crosswind offset: uniform over the whole field normally; in **easy** mode, within `EASY_PASS` 12 m of a streamer, or between the poles. `fieldChord` finds where that wind-parallel line crosses the field. Reject corner clips shorter than `minTrackOnField` = max(35 m, 15 s × wind). Pick the start along the line: normally from up to `ENTRY_MARGIN` 15 m beyond the upwind edge (it drifts in) to where enough track remains, so it **can form downwind of the pilot**; in easy mode 15–55 m (`EASY_LEAD`) upwind of the most-upwind streamer. Reject within 8 m of a pole.
-4. **Readability check** (Joe's requirement): `thermalSignal` drifts the candidate without gusts while it's on the field. It needs some streamer to reach both ≥ `MIN_SIGNAL.angle` 15° from the ambient direction *and* ≥ `MIN_SIGNAL.speed` 20 % speed change (not necessarily at the same moment; angle is ignored while the streamer is limp, < 0.3 m/s). The first candidate with score ≥ `SIGNAL_MARGIN` 1.1 wins; otherwise the best one is kept. The result is stored in `thermalSpec.signal` and shown in the round summary.
-5. `GustField` (draws last).
+3. `pick` (normal mode only): how many readable tracks to collect, 1..`PICK_MAX` 3.
+4. Candidate loop (≤ 400 tries). Pick a crosswind offset: uniform over the whole field normally; in **easy** mode, within `EASY_PASS` 12 m of a streamer, or between the poles. `fieldChord` finds where that wind-parallel line crosses the field. Reject corner clips shorter than `minTrackOnField` = max(35 m, 15 s × wind). Pick the start along the line: normally from up to `ENTRY_MARGIN` 15 m beyond the upwind edge (it drifts in) to where enough track remains, so it **can form downwind of the pilot**; in easy mode 50–70 m (`EASY_LEAD`) upwind of the most-upwind streamer. Reject anything within `MIN_SPAWN_DIST` 50 m of the pilot or any streamer (user: thermals mustn't pop up right beside a streamer).
+5. **Readability check** (Joe's requirement): `thermalSignal` drifts the candidate without gusts while it's on the field. It needs some streamer to reach both ≥ `MIN_SIGNAL.angle` 15° from the ambient direction *and* ≥ `MIN_SIGNAL.speed` 20 % speed change (not necessarily at the same moment; angle is ignored while the streamer is limp, < 0.3 m/s). Collect `pick` candidates with score ≥ `SIGNAL_MARGIN` 1.1 and keep the **weakest** of them (readable tracks cluster near streamers; this spreads passes toward the readable limit, user asked for more variation). If none qualify, the best one is kept. The result is stored in `thermalSpec.signal` and shown in the round summary.
+6. `GustField` (draws last).
 
-Trade-off to keep in mind: the readability rule means **weak thermals pass close to streamers**, while strong ones still roam (~40 % pass > 40 m from the pilot). With upwind-only layouts, thermals forming behind the pilot rarely qualify; the ring catches them. The user originally asked for "thermals crossing any part of the field", and Joe's rule overrides that where they conflict.
+Trade-off to keep in mind: the readability rule means **weak thermals pass close to streamers** (medium: median ~13 m), while strong ones still roam (~70 % pass > 40 m from the pilot). With upwind-only layouts, thermals forming behind the pilot rarely qualify; the ring catches them, but the 50 m spawn clearance limits that to wide fields (~3–5 %). The user originally asked for "thermals crossing any part of the field", and Joe's rule overrides that where they conflict.
 
 ## Round lifecycle (`Round` in scenario.js)
 
 - Phases: `watching` → (`mark(pos)` or `reveal()`) → `revealed` → `over`. Also `watching` → `over` if the thermal leaves unmarked.
 - It's `over` once the thermal has **entered** the field and then left by more than 0.6R (`th.entered` handles thermals that form beyond the edge). `endT` freezes the HUD timer, but time keeps running so streamers stay alive.
-- `mark` before the thermal forms gives an `early` guess with 0 points. Guess fields: `pos, t, early, thermalPos, distance, points, rating, readTime`, or `gaveUp`.
-- Score: `100·exp(−d²/2·12²)` (`SCORE_SIGMA`). `rateGuess` tiers (core / lift / edge / near / miss) are relative to the core radius.
+- `mark` before the thermal forms gives an `early` guess with 0 points. Guess fields: `pos, t, early, thermalPos, distance, points, rating, bearingError, flyThrough, readTime`, or `gaveUp`.
+- Score (`assessGuess`): the max of `100·exp(−d²/2·12²)` (`SCORE_SIGMA`) and direction credit (user request: reward the right vector with the wrong range). Direction is judged from the pilot: bearing error gives up to `DIRECTION_POINTS` 35 (σ 10°), and if the pilot→mark segment passes within R of the thermal ("fly through it on the way") `FLY_THROUGH_POINTS` 50. Only when the thermal is ≥ 2R from the pilot and the mark ≥ 10 m out. Judged against the thermal's position at mark time (no drift during the flight). `rateGuess` tiers: core / lift / edge (relative to R), then through / line, then near / miss.
 
 ## UI and main.js
 
 - Loop: real dt (capped at 50 ms) × speed (½/1/2/4×), split into fixed 1/60 s substeps. `syncPhase()` turns phase changes into DOM updates: `onRevealed` (particles, wind chip, toast, stats), `onOver` (summary card). `hadThermal` refreshes status and toast when the thermal forms after an early mark.
-- Renderer: `resize(w, h)` in CSS px; `fit(field)` sets pixels-per-metre and repaints the grass when size or field changes (called each `draw`). Draw order: grass → range rings → (if revealed: trail, particles, thermal, vector triangles) → pole shadows → per streamer: projection ray (aid, pre-reveal only), ribbon, B baseline, B→C arrow, pole → pilot → guess → hover → compass, scale bar, ambient key.
+- Renderer: `resize(w, h)` in CSS px; `fit(field)` sets pixels-per-metre and repaints the grass when size or field changes (called each `draw`). Draw order: grass → range rings → (if revealed: trail, particles, thermal, vector triangles) → pole shadows → per streamer: projection ray (aid, pre-reveal only), ribbon, B baseline, B→C arrow, pole → pilot → guess (after the reveal: flight line from the pilot, line to the thermal) → hover → compass, scale bar, ambient key.
 - Colours (`COLORS`): ambient = blue, felt = white, third vector = yellow (Joe's convention, but felt is white not green, because green is invisible on grass), streamer = orange, guess = pink.
 - Training aids (`settings.assists`): `baseline` (B, default on), `third` (B→C), `project` (rays to the field edge), `rings` (every 25 m). After the reveal, B and B→C are always shown.
 - Settings (localStorage `tvt.settings`): `mode, windClass, thermalClass, easy, gustiness` (integer %), `speed, assists, v`. **Bump `SETTINGS_VERSION`** and drop the affected keys when changing a default that saved values would otherwise override (v2 reset gustiness 10 → 6). Stats: `tvt.stats`. All storage access goes through try/catch (`store`).
@@ -113,7 +114,7 @@ Trade-off to keep in mind: the readability rule means **weak thermals pass close
 - Streamer droops below 1.5 m/s and is continuous and linear above.
 - Default gusts: ≥ 88 % of readings within 50 m and ≥ 75 % at 50–70 m are within 30° of the thermal.
 - Every generated thermal (all layouts × classes × winds) shows ≥ 15° and ≥ 20 % in real round playback.
-- Layout geometry, easy-mode lead and pass distance, strength ordering, track rules (on field, enough track left, drifts in), seed determinism, round lifecycle and scoring.
+- Spawn ≥ 50 m from the pilot and every streamer. Layout geometry, easy-mode lead and pass distance, strength ordering, track rules (on field, enough track left, drifts in), seed determinism, round lifecycle and scoring (including direction and fly-through credit).
 
 If a model change legitimately moves a threshold, update the test, `README.md` and this file together, and say why in the commit.
 

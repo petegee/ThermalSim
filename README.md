@@ -29,7 +29,7 @@ Add `?seed=<hex>` to the URL to replay a specific scenario. The current seed is 
    - Wind **drops**: the lift is upwind of the pole, coming toward you.
    - Wind **picks up**: the lift has passed and is now downwind.
    - A **big or fast** change means the thermal is close. A **small or slow** one means it's weak or far away.
-3. Click the field where you think the thermal is. Clicking before it has formed scores zero, because you were reading a gust.
+3. Click the field where you think the thermal is. Getting the direction right earns partial credit even if the distance is off, and more if you'd fly through it on the way. Clicking before it has formed scores zero, because you were reading a gust.
 4. The reveal shows the thermal, its track, the average wind, and Joe's vector triangle at points all the way round it: blue average wind + yellow inflow = white felt wind.
 
 Keys: **Space** pauses, **N** starts a new scenario, **R** reveals.
@@ -46,7 +46,7 @@ Conditions for the next scenario:
 - **Wind**: random / slow / moderate.
 - **Thermal strength**: random / weak / medium / strong.
 - **Gustiness**: 0–30 % (default 6 %).
-- **Easy mode**: the thermal forms upwind of the streamers and its track passes within 12 m of one (or between the two poles), so you see the whole sequence as it goes by.
+- **Easy mode**: the thermal forms 50–70 m upwind of the streamers and its track passes within 12 m of one (or between the two poles), so you see the whole sequence as it goes by.
 
 Switching mode starts a new scenario straight away.
 
@@ -59,8 +59,8 @@ felt wind = (ambient wind + gusts) × (1 − calm) + thermal inflow
 ```
 
 - **Ambient wind**: slow is 1.5–3 m/s, moderate is 3–5 m/s, from any direction. The thermal drifts at the ambient wind velocity.
-- **Thermal track**: any line across the field parallel to the wind (in easy mode, one that passes close to the streamers). The crosswind offset is spread evenly over the whole field, so it can pass far to one side of you. The thermal forms anywhere along that line, from up to 15 m beyond the upwind edge (it then drifts in) to far enough up the field that at least `max(35 m, 15 s × wind speed)` of track is left. So it can form downwind of you too.
-- **Readable signal**: a track is only accepted if, at some point while the thermal is on the field, at least one streamer turns at least 15° from the ambient wind direction and changes speed by at least 20 %. The two don't have to happen at the same moment. That's checked without gusts and with a 10 % margin, so every thermal makes itself felt above the default turbulence. In practice weak thermals have to pass close to a streamer, while strong ones can still cross far out. With only upwind streamers (two poles, or the pilot streamer), thermals that form behind you and drift away rarely qualify; the ring's downwind streamers can see those. The round summary shows the biggest shift the thermal caused.
+- **Thermal track**: any line across the field parallel to the wind (in easy mode, one that passes close to the streamers). The crosswind offset is spread evenly over the whole field, so it can pass far to one side of you. The thermal forms anywhere along that line, from up to 15 m beyond the upwind edge (it then drifts in) to far enough up the field that at least `max(35 m, 15 s × wind speed)` of track is left. It never forms within 50 m of you or any streamer, so it doesn't pop up right beside one: its inflow builds as it drifts in. On a wide screen it can occasionally form downwind of you too.
+- **Readable signal**: a track is only accepted if, at some point while the thermal is on the field, at least one streamer turns at least 15° from the ambient wind direction and changes speed by at least 20 %. The two don't have to happen at the same moment. That's checked without gusts and with a 10 % margin, so every thermal makes itself felt above the default turbulence. In practice weak thermals have to pass close to a streamer, while strong ones can still cross far out. To spread passes out, the generator draws one to three readable tracks and keeps the one with the weakest signal, so some rounds pass close by and others near the limit of what can be read. With only upwind streamers (two poles, or the pilot streamer), thermals that form behind you and drift away rarely qualify; the ring's downwind streamers can see those. The round summary shows the biggest shift the thermal caused.
 - **Thermal inflow**: horizontal flow toward the thermal centre. It rises linearly inside the core radius R to a peak S at the core edge, then decays as `(R/r)^1.1` outside, a little faster than the 1/r that continuity gives. Strength ramps up over 5–9 s as the thermal forms. Stronger thermals are both faster and wider, so they pull air in from much further out:
 
   | Class | Peak inflow S | Core radius R | Inflow 50 m out (typical) |
@@ -78,14 +78,14 @@ At the default gustiness, a headless check across 300 medium-thermal scenarios p
 
 | Distance from the streamer | Error |
 | --- | --- |
-| Inside 1.5 core radii | 12–13° |
+| Inside 1.5 core radii | 13–14° |
 | 1.5 R to 35 m | 5–6° |
-| 35–50 m | ~9° |
-| Beyond 50 m | 16–18° |
+| 35–50 m | 8–9° |
+| Beyond 50 m | 12–15° |
 
-Inside the core the streamer is mostly limp, and far away the signal starts to get lost in the gusts. A test keeps this honest: at default settings, at least 75 % of readings 50–70 m from a streamer must point within 30° of the thermal. With the thermal directly overhead, the median streamer length is under 1 m, against about 10 m in a 3 m/s breeze.
+Inside the core the streamer is mostly limp, and far away the signal starts to get lost in the gusts. A test keeps this honest: at default settings, at least 75 % of readings 50–70 m from a streamer must point within 30° of the thermal. With the thermal directly overhead, the median streamer length is under 1 m, against about 7 m in a 3 m/s breeze.
 
-Scoring: `100 · exp(−d² / 2·12²)` for miss distance d in metres. Ratings are based on whether you'd have been in the core, in the lift, or on its edge.
+Scoring: `100 · exp(−d² / 2·12²)` for miss distance d in metres. If you read the direction right but misjudged the range, you get partial credit instead, whichever is higher. Picture launching from where you stand and flying straight at your mark. A bearing within a few degrees of the thermal's earns up to 35 points (falling off with a 10° spread), and if that line passes through the core on the way to your mark you'd have found it anyway, which earns 50. Bearings mean nothing when the thermal is right beside you, so this only applies when it's at least two core radii away and your mark at least 10 m out. Ratings are based on whether you'd have been in the core, in the lift or on its edge, on the right line, or in the right direction.
 
 ## Files
 

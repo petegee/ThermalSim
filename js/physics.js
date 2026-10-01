@@ -146,7 +146,7 @@ export function localWind(scn, p, t, thermal = scn.thermal) {
 // linear in speed, so the streamer tip is literally the wind vector drawn
 // from the pole, which is what makes the B→C third vector point at the thermal.
 
-export const STREAMER_M_PER_MS = 3.4; // metres of (stylised, exaggerated) streamer per m/s
+export const STREAMER_M_PER_MS = 2.4; // metres of (stylised, exaggerated) streamer per m/s
 export const STREAMER_LIFT_MS = 1.5;
 export const STREAMER_MAX_MS = 10;
 

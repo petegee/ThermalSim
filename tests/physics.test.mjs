@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { sub, len, norm, dot, dist, headingOf, angleDiff } from '../js/vec.js';
+import { sub, len, norm, dot, dist, headingOf, angleDiff, fromHeading } from '../js/vec.js';
 import {
   thermalInflow,
   inflowProfile,
@@ -18,12 +18,16 @@ import {
   ENTRY_MARGIN,
   PILOT_STREAMER,
   scoreGuess,
+  assessGuess,
+  DIRECTION_POINTS,
+  FLY_THROUGH_POINTS,
   estimatedCrossingTime,
   fieldChord,
   minTrackOnField,
   THERMAL_CLASSES,
   EASY_PASS,
   EASY_LEAD,
+  MIN_SPAWN_DIST,
   RING,
   DEFAULT_GUSTINESS,
   MIN_SIGNAL,
@@ -225,7 +229,7 @@ test('pilot-streamer mode: one streamer just upwind and to the right of the pilo
     const p = scn.poles[0].pos;
     assert.ok(Math.abs(dot(p, scn.upwind) - PILOT_STREAMER.upwind) < 1e-9);
     assert.ok(Math.abs(dot(p, scn.left) + PILOT_STREAMER.right) < 1e-9, 'on the right');
-    assert.ok(len(p) > 6 && len(p) < 10, 'beside the pilot, not on top of them');
+    assert.ok(len(p) > 4 && len(p) < 8, 'beside the pilot, not on top of them');
   }
 });
 
@@ -260,8 +264,11 @@ test('thermal tracks: form on (or just upwind of) the field with enough drift le
 
 // Weak thermals have to pass close to a streamer to be readable (see the
 // signal test), but a strong one can be read from well across the field. The
-// ring has streamers downwind too, so thermals can also form behind you.
+// ring has streamers downwind too, so thermals can also form behind you,
+// though only on wider fields: they must form MIN_SPAWN_DIST from the pilot
+// and every streamer and still have enough track left.
 test('strong thermal tracks spread across the whole field, not just past the pilot', () => {
+  let formsBehind = 0;
   for (const field of FIELDS) {
     const offsets = [];
     let formsDownwind = 0;
@@ -278,8 +285,25 @@ test('strong thermal tracks spread across the whole field, not just past the pil
     const short = Math.min(field.halfW, field.halfH);
     assert.ok(far > 0.3, `only ${(far * 100).toFixed(0)}% of tracks pass > 40 m from the pilot`);
     assert.ok(Math.max(...offsets) > short * 0.7 && Math.min(...offsets) < -short * 0.7, 'tracks reach both sides');
-    assert.ok(formsDownwind / N > 0.1, 'some thermals form downwind of the pilot');
     assert.ok(driftsIn / N > 0.03, 'some thermals drift in from beyond the upwind edge');
+    formsBehind += formsDownwind / N / FIELDS.length;
+  }
+  assert.ok(formsBehind > 0.015, 'some thermals form downwind of the pilot');
+});
+
+test('thermals never form within MIN_SPAWN_DIST of the pilot or a streamer', () => {
+  for (const layout of ['poles', 'ring', 'pilot']) {
+    for (const field of FIELDS) {
+      for (const easy of [false, true]) {
+        for (let seed = 1; seed <= 150; seed++) {
+          const scn = createScenario(seed, { field, layout, easy, thermalClass: 'random' });
+          const sp = scn.thermalSpec.spawnPos;
+          for (const q of [{ x: 0, y: 0 }, ...scn.poles.map((p) => p.pos)]) {
+            assert.ok(dist(q, sp) >= MIN_SPAWN_DIST - 1e-6, `${layout} seed ${seed}: forms ${dist(q, sp).toFixed(1)} m away`);
+          }
+        }
+      }
+    }
   }
 });
 
@@ -381,6 +405,28 @@ test('score falls off with distance', () => {
   assert.ok(scoreGuess(5) > 85);
   assert.ok(scoreGuess(12) < 70 && scoreGuess(12) > 50);
   assert.ok(scoreGuess(40) < 3);
+});
+
+test('partial credit for the right direction, more if you would fly through the lift', () => {
+  const th = { x: 0, y: 50 }; // 50 m north of the pilot
+  const R = 12;
+  const short = assessGuess({ x: 0, y: 20 }, th, R); // right bearing, stops short
+  assert.equal(short.points, DIRECTION_POINTS);
+  assert.equal(short.flyThrough, false);
+  assert.equal(short.rating.tier, 'line');
+  const beyond = assessGuess({ x: 3, y: 90 }, th, R); // overshoots, but the line crosses the core
+  assert.equal(beyond.flyThrough, true);
+  assert.equal(beyond.points, FLY_THROUGH_POINTS);
+  assert.equal(beyond.rating.tier, 'through');
+  assert.ok(FLY_THROUGH_POINTS > DIRECTION_POINTS);
+  const offLine = assessGuess(fromHeading(40, 50), th, R); // 40° off at the right range
+  assert.ok(offLine.points < 10 && !offLine.flyThrough);
+  assert.equal(assessGuess(th, th, R).points, 100, 'a direct hit is still 100');
+  assert.ok(assessGuess({ x: 5, y: 45 }, th, R).points > FLY_THROUGH_POINTS, 'close hits beat the line credit');
+  // Bearings mean nothing when the thermal is beside the pilot.
+  const nearPilot = assessGuess({ x: 0, y: 60 }, { x: 0, y: 10 }, R);
+  assert.equal(nearPilot.bearingError, null);
+  assert.equal(nearPilot.points, scoreGuess(50));
 });
 
 test('gusts shift both speed and direction, crosswind a bit less than along-wind', () => {

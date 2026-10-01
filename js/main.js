@@ -6,6 +6,7 @@ import {
   THERMAL_CLASSES,
   FIELD_SHORT_HALF,
   DEFAULT_GUSTINESS,
+  scoreGuess,
 } from './scenario.js';
 import { Streamer } from './physics.js';
 import { Renderer } from './render.js';
@@ -195,6 +196,7 @@ function onOver() {
   const rows = [
     ['Score', `${r.points} / 100`],
     ['Miss distance', round.guess?.distance != null ? `${round.guess.distance.toFixed(1)} m` : '–'],
+    ['Bearing error', round.guess?.bearingError != null ? `${Math.round(round.guess.bearingError)}°` : '–'],
     ['Read time', round.guess?.readTime != null ? `${round.guess.readTime.toFixed(1)} s after it formed` : '–'],
     ['Average wind', `${scn.windSpeed.toFixed(1)} m/s from ${compassPoint(scn.windFrom)}`],
     ['Thermal', `${THERMAL_CLASSES[scn.thermalClass].label}, ${spec.strength.toFixed(1)} m/s peak inflow`],
@@ -239,10 +241,17 @@ function resultSummary() {
         : 'No thermal had formed yet, so that was just a gust. Watch for it to form.',
     };
   }
+  // Say how the points were earned when the direction carried the score.
+  const how =
+    g.points > scoreGuess(g.distance)
+      ? g.flyThrough
+        ? ' · your line passes through the lift'
+        : ` · bearing off by ${Math.round(g.bearingError)}°`
+      : '';
   return {
     points: g.points,
     title: g.rating.text,
-    detail: `${g.distance.toFixed(1)} m from the centre · read ${g.readTime.toFixed(1)} s after it formed`,
+    detail: `${g.distance.toFixed(1)} m from the centre${how} · read ${g.readTime.toFixed(1)} s after it formed`,
   };
 }
 

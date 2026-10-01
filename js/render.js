@@ -380,7 +380,7 @@ export class Renderer {
     const c = this.toScreen({ x: 0, y: 0 });
     const f = this.vToScreen(facing);
     const ang = Math.atan2(f.y, f.x);
-    const u = Math.max(this.ppm * 0.7, 3.6);
+    const u = Math.max(this.ppm * 0.49, 2.5);
 
     ctx.save();
     ctx.translate(c.x, c.y);
@@ -547,6 +547,19 @@ export class Renderer {
     const { ctx } = this;
     const g = this.toScreen(guess.pos);
     ctx.save();
+    if (revealed && guess.bearingError != null) {
+      // The flight line from launch to the mark, which earns direction credit.
+      // Brighter when it passes through the lift.
+      const o = this.toScreen({ x: 0, y: 0 });
+      ctx.strokeStyle = guess.flyThrough ? 'rgba(255, 79, 163, 0.75)' : 'rgba(255, 79, 163, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([2, 5]);
+      ctx.beginPath();
+      ctx.moveTo(o.x, o.y);
+      ctx.lineTo(g.x, g.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     if (revealed && guess.thermalPos) {
       const t = this.toScreen(guess.thermalPos);
       ctx.strokeStyle = 'rgba(255, 79, 163, 0.9)';

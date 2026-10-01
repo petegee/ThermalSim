@@ -15,6 +15,14 @@ export function norm(a) {
   return l > 1e-9 ? { x: a.x / l, y: a.y / l } : { x: 0, y: 0 };
 }
 
+// Distance from p to the segment a→b.
+export function distToSegment(p, a, b) {
+  const ab = sub(b, a);
+  const l2 = dot(ab, ab);
+  const t = l2 > 1e-12 ? Math.max(0, Math.min(1, dot(sub(p, a), ab) / l2)) : 0;
+  return dist(p, add(a, scale(ab, t)));
+}
+
 // Rotate 90° counter-clockwise: the "left" of a direction when viewed from above.
 export const perpLeft = (a) => ({ x: -a.y, y: a.x });
 

@@ -1,7 +1,7 @@
 // Scenario generation and the round state machine. No DOM in here so it can be
 // unit-tested under Node.
 
-import { add, scale, dot, dist, len, perpLeft, norm, fromHeading } from './vec.js';
+import { add, scale, dot, dist, len, perpLeft, norm, fromHeading, headingOf, angleDiff, distToSegment } from './vec.js';
 import { mulberry32, randRange, smoothstep, GustField, localWind } from './physics.js';
 
 // The visible field is a rectangle centred on the pilot. Its shorter side
@@ -31,20 +31,31 @@ export const THERMAL_CLASSES = {
 // EASY_LEAD.max metres upwind of the streamers, so you see the whole
 // lull → limp → surge as it goes by.
 export const EASY_PASS = 12;
-export const EASY_LEAD = { min: 15, max: 55 };
+export const EASY_LEAD = { min: 50, max: 70 };
+
+// A thermal never forms within this many metres of the pilot or any
+// streamer: popping up right beside a streamer gives an instant, obvious
+// shift. From further out its inflow builds gradually as it drifts closer.
+export const MIN_SPAWN_DIST = 50;
+
+// How many readable tracks to draw (uniformly 1..PICK_MAX) before taking the
+// one with the weakest signal. Readable tracks cluster close to a streamer,
+// so taking the weakest of a few spreads passes out toward the limit of what
+// can still be read, while some rounds still pass close by.
+export const PICK_MAX = 3;
 
 // Streamer layouts, in wind-aligned coordinates relative to the pilot.
 //   poles: two poles upwind, one each side: the classic third-vector setup.
 //   ring:  RING.count poles evenly round the pilot at RING.radius, starting
 //          RING.count/2 steps off dead upwind, so there's a pair upwind,
 //          crosswind and downwind (for six).
-//   pilot: a single streamer beside the pilot (a little upwind and to the
-//          right, so it blows past rather than across the pilot figure).
+//   pilot: a single streamer just beside the pilot (a little upwind and to
+//          the right, so it blows past rather than across the pilot figure).
 export const LAYOUTS = ['poles', 'ring', 'pilot'];
 export const POLE_UPWIND = 28;
 export const POLE_SPREAD = 18;
 export const RING = { count: 6, radius: 30 };
-export const PILOT_STREAMER = { upwind: 4, right: 6 };
+export const PILOT_STREAMER = { upwind: 3, right: 4 };
 
 // Along-wind gust RMS as a fraction of wind speed.
 export const DEFAULT_GUSTINESS = 0.06;
@@ -154,9 +165,14 @@ export function createScenario(seed, opts = {}) {
 
   // Only accept a track that gives a readable signal: at some point while
   // the thermal is on the field, at least one streamer must swing by
-  // MIN_SIGNAL.angle and change speed by MIN_SIGNAL.speed. If no candidate
-  // manages it, keep the one that came closest.
+  // MIN_SIGNAL.angle and change speed by MIN_SIGNAL.speed. Outside easy mode,
+  // collect `pick` readable tracks and keep the weakest (see PICK_MAX). If no
+  // candidate manages it, keep the one that came closest.
+  const pick = easy ? 1 : 1 + Math.floor(rng() * PICK_MAX);
+  const spawnClear = [{ x: 0, y: 0 }, ...poles.map((pl) => pl.pos)];
   let best = null;
+  let chosen = null;
+  let readable = 0;
   for (let i = 0; i < 400; i++) {
     const o = scale(left, randRange(rng, crossRange[0], crossRange[1]));
     const chord = fieldChord(o, down, field);
@@ -166,13 +182,16 @@ export function createScenario(seed, opts = {}) {
       : [chord[0] - ENTRY_MARGIN, chord[1] - minTrack];
     if (hi < lo) continue;
     const p = add(o, scale(down, randRange(rng, lo, hi)));
-    if (Math.min(...poles.map((pl) => dist(pl.pos, p))) < 8) continue;
+    if (Math.min(...spawnClear.map((q) => dist(q, p))) < MIN_SPAWN_DIST) continue;
     const signal = thermalSignal({ wind, poles, field }, { ...thermalSpec, spawnPos: p });
     if (!best || signal.score > best.signal.score) best = { p, signal };
-    if (signal.score >= SIGNAL_MARGIN) break;
+    if (signal.score < SIGNAL_MARGIN) continue;
+    if (!chosen || signal.score < chosen.signal.score) chosen = { p, signal };
+    if (++readable >= pick) break;
   }
-  thermalSpec.spawnPos = best ? best.p : scale(upwind, 40);
-  thermalSpec.signal = best ? best.signal : null;
+  chosen ??= best;
+  thermalSpec.spawnPos = chosen ? chosen.p : scale(upwind, FIELD_SHORT_HALF + ENTRY_MARGIN);
+  thermalSpec.signal = chosen ? chosen.signal : null;
 
   const gustiness = opts.gustiness ?? DEFAULT_GUSTINESS;
   const gusts = new GustField(rng, gustiness);
@@ -260,10 +279,48 @@ export function scoreGuess(distance) {
   return Math.round(100 * Math.exp(-(distance * distance) / (2 * SCORE_SIGMA * SCORE_SIGMA)));
 }
 
-export function rateGuess(distance, radius) {
+// Partial credit for reading the direction right but misjudging the range.
+// The pilot launches from the centre and flies toward their mark, so:
+//   - a bearing (from the pilot) within a few degrees of the thermal's earns
+//     up to DIRECTION_POINTS, falling off with DIRECTION_SIGMA degrees;
+//   - if that flight line passes through the lift (within the core radius)
+//     on the way to the mark, they'd have found it anyway: FLY_THROUGH_POINTS.
+// Bearings mean nothing when the thermal or the mark is right by the pilot,
+// so neither applies when the thermal is within DIRECTION_MIN_CORES core
+// radii of the pilot or the mark within DIRECTION_MIN_MARK metres.
+export const DIRECTION_POINTS = 35;
+export const DIRECTION_SIGMA = 10;
+export const FLY_THROUGH_POINTS = 50;
+export const DIRECTION_MIN_CORES = 2;
+export const DIRECTION_MIN_MARK = 10;
+
+const PILOT = { x: 0, y: 0 };
+
+// Score a mark against the thermal's position at the moment of marking.
+// Points are the best of the distance score and the direction credits.
+export function assessGuess(pos, thermalPos, radius) {
+  const distance = dist(pos, thermalPos);
+  const byDistance = scoreGuess(distance);
+  let bearingError = null;
+  let flyThrough = false;
+  let byDirection = 0;
+  if (len(thermalPos) >= DIRECTION_MIN_CORES * radius && len(pos) >= DIRECTION_MIN_MARK) {
+    bearingError = Math.abs(angleDiff(headingOf(thermalPos), headingOf(pos)));
+    byDirection = Math.round(DIRECTION_POINTS * Math.exp(-(bearingError ** 2) / (2 * DIRECTION_SIGMA ** 2)));
+    flyThrough = distToSegment(thermalPos, PILOT, pos) <= radius;
+  }
+  const points = Math.max(byDistance, byDirection, flyThrough ? FLY_THROUGH_POINTS : 0);
+  return { distance, points, bearingError, flyThrough, rating: rateGuess(distance, radius, { bearingError, flyThrough }) };
+}
+
+export function rateGuess(distance, radius, { bearingError = null, flyThrough = false } = {}) {
   if (distance <= radius * 0.5) return { tier: 'core', text: 'Dead centre: you’re in the core' };
   if (distance <= radius) return { tier: 'lift', text: 'In the lift' };
   if (distance <= radius * 2) return { tier: 'edge', text: 'On the edge: you’d feel it' };
+  if (flyThrough) return { tier: 'through', text: 'Right line: you’d fly through it on the way' };
+  if (bearingError != null && bearingError <= DIRECTION_SIGMA) {
+    return { tier: 'line', text: 'Right direction, wrong distance' };
+  }
   if (distance <= 35) return { tier: 'near', text: 'Close, but you’d fly past it' };
   return { tier: 'miss', text: 'Missed it' };
 }
@@ -279,7 +336,7 @@ export class Round {
     this.scn = scn;
     this.t = 0;
     this.phase = 'watching';
-    this.guess = null; // { pos, t, thermalPos, distance, points, rating, early }
+    this.guess = null; // { pos, t, thermalPos, distance, points, rating, bearingError, flyThrough, early }
     this.trail = [];
     this.trailClock = 0;
     this.endReason = null;
@@ -336,15 +393,12 @@ export class Round {
     if (!th) {
       this.guess = { pos, t: this.t, early: true, points: 0, distance: null, thermalPos: null };
     } else {
-      const d = dist(pos, th.pos);
       this.guess = {
         pos,
         t: this.t,
         early: false,
         thermalPos: { ...th.pos },
-        distance: d,
-        points: scoreGuess(d),
-        rating: rateGuess(d, th.radius),
+        ...assessGuess(pos, th.pos, th.radius),
         readTime: this.t - th.bornAt,
       };
     }

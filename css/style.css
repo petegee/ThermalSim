@@ -35,22 +35,19 @@ body {
   background: radial-gradient(1200px 600px at 30% -10%, #1a2c20 0%, var(--bg) 60%) fixed, var(--bg);
   color: var(--text);
   font: 14px/1.45 var(--font);
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* ---- Top bar ---------------------------------------------------------------- */
 
 .topbar {
+  grid-area: top;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 12px 20px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(13, 21, 16, 0.8);
-  backdrop-filter: blur(6px);
+  gap: 12px;
+  padding: 2px 4px 0;
 }
 
 .brand {
@@ -72,19 +69,14 @@ body {
 
 h1 {
   margin: 0;
-  font-size: 17px;
+  font-size: 16px;
+  line-height: 1.2;
   letter-spacing: 0.01em;
-}
-
-.tagline {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12.5px;
 }
 
 .scoreline {
   display: flex;
-  gap: 22px;
+  gap: 16px;
 }
 
 .stat {
@@ -108,19 +100,26 @@ h1 {
 
 /* ---- Layout ----------------------------------------------------------------- */
 
+/* Desktop: the field fills everything left of a scrolling side panel. */
 .layout {
-  flex: 1;
+  height: 100vh;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 18px;
-  padding: 18px 20px 20px;
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    'stage top'
+    'stage panel';
+  gap: 12px;
+  padding: 12px;
 }
 
 .stage {
+  grid-area: stage;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
 }
 
@@ -369,10 +368,19 @@ canvas {
 /* ---- Panel ------------------------------------------------------------------ */
 
 .panel {
+  grid-area: panel;
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.mode-seg {
+  margin-bottom: 12px;
 }
 
 .card {
@@ -734,18 +742,27 @@ output {
 
 /* ---- Responsive ------------------------------------------------------------- */
 
+/* Narrow screens: stack title, field and panel, and let the page scroll. */
 @media (max-width: 900px) {
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
   .layout {
-    grid-template-columns: 1fr;
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    grid-template-areas:
+      'top'
+      'stage'
+      'panel';
     padding: 12px 16px 20px;
   }
 
-  .topbar {
-    padding: 10px 16px;
-  }
-
-  .tagline {
-    display: none;
+  .stage,
+  .panel {
+    overflow: visible;
   }
 }
 

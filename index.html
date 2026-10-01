@@ -9,21 +9,18 @@
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="logo" aria-hidden="true"></span>
-        <div>
-          <h1>Third Vector Trainer</h1>
-          <p class="tagline">Find the thermal from what the streamers tell you</p>
-        </div>
-      </div>
-      <div class="scoreline" aria-live="polite">
-        <div class="stat"><span class="stat-label">Round</span><span id="roundNo" class="stat-value">1</span></div>
-        <div class="stat"><span class="stat-label">Score</span><span id="totalScore" class="stat-value">0</span></div>
-      </div>
-    </header>
-
     <main class="layout">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo" aria-hidden="true"></span>
+          <h1>Third Vector Trainer</h1>
+        </div>
+        <div class="scoreline" aria-live="polite">
+          <div class="stat"><span class="stat-label">Round</span><span id="roundNo" class="stat-value">1</span></div>
+          <div class="stat"><span class="stat-label">Score</span><span id="totalScore" class="stat-value">0</span></div>
+        </div>
+      </header>
+
       <section class="stage" aria-label="Flying field">
         <div class="canvas-wrap" id="canvasWrap">
           <canvas id="field" aria-label="Top-down view of the flying field. Click where you think the thermal is."></canvas>
@@ -60,10 +57,11 @@
             <h3>Round</h3>
             <span class="seed" id="seedLabel" title="Scenario seed: add ?seed= to the URL to replay it"></span>
           </div>
-          <p class="hint" id="instructions">
-            Watch both streamers. When the air shifts, work out the third vector and <strong>click the field where you
-            think the thermal is</strong>.
-          </p>
+          <div class="segmented mode-seg" role="radiogroup" aria-label="Streamer layout" id="modeSeg">
+            <button role="radio" data-v="poles" aria-checked="true">Two upwind poles</button>
+            <button role="radio" data-v="pilot">Pilot streamer</button>
+          </div>
+          <p class="hint" id="instructions"></p>
           <div class="btn-row">
             <button class="btn" id="btnReveal">Reveal <kbd>R</kbd></button>
             <button class="btn primary" id="btnNew">New scenario <kbd>N</kbd></button>
@@ -96,12 +94,12 @@
           <label class="toggle">
             <input type="checkbox" id="aidProject" />
             <span class="switch"></span>
-            <span><strong>Project third vectors</strong><small>Extend both: where they cross is the thermal</small></span>
+            <span><strong>Project third vectors</strong><small>Extend them toward the lift. With two poles, they cross at the thermal</small></span>
           </label>
           <label class="toggle">
             <input type="checkbox" id="aidRings" />
             <span class="switch"></span>
-            <span><strong>Range rings</strong><small>25 m and 50 m from you</small></span>
+            <span><strong>Range rings</strong><small>Every 25 m out from you</small></span>
           </label>
         </section>
 
@@ -142,6 +140,7 @@
             <li>Wind <strong>drops</strong> → lift is coming from upwind. Wind <strong>picks up</strong> → it has passed and is now downwind.</li>
             <li>A <strong>big or fast-changing</strong> shift means the thermal is close. A <strong>small, slow</strong> one means it's weak or far away.</li>
             <li>Two poles give two third vectors. Where they cross is roughly where the thermal is.</li>
+            <li>With only your own streamer you get a direction. Judge the distance from how big the shift is and how fast it changes.</li>
           </ol>
           <p class="credit">Based on Joe Wurts' soaring training notes and Marcus Stent's <em>Thermal Training Notes</em> (2016).</p>
         </details>

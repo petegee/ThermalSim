@@ -4,22 +4,76 @@
 import { add, scale, dist, perpLeft, norm, fromHeading } from './vec.js';
 import { mulberry32, randRange, smoothstep, GustField, localWind } from './physics.js';
 
-export const FIELD_HALF = 70; // metres visible in every direction from the pilot
+// The visible field is a rectangle centred on the pilot. Its shorter side
+// always shows FIELD_SHORT_HALF metres either way; a wider screen shows more
+// ground along the longer side.
+export const FIELD_SHORT_HALF = 70;
+export const DEFAULT_FIELD = { halfW: FIELD_SHORT_HALF, halfH: FIELD_SHORT_HALF };
 
 export const WIND_CLASSES = {
   slow: { min: 1.5, max: 3.0, label: 'Slow' },
   moderate: { min: 3.0, max: 5.0, label: 'Moderate' },
 };
 
-// Pole layout relative to the pilot, in wind-aligned coordinates.
+// Streamer layouts, in wind-aligned coordinates relative to the pilot.
+//   poles: two poles upwind, one each side: the classic third-vector setup.
+//   pilot: a single streamer beside the pilot (a little upwind and to the
+//          right, so it blows past rather than across the pilot figure).
+export const LAYOUTS = {
+  poles: { label: 'Two poles' },
+  pilot: { label: 'Pilot streamer' },
+};
 export const POLE_UPWIND = 28;
 export const POLE_SPREAD = 18;
+export const PILOT_STREAMER = { upwind: 4, right: 6 };
+
+// The thermal may form this far beyond the upwind edge and drift in.
+export const ENTRY_MARGIN = 15;
 
 export function randomSeed() {
   return (Math.random() * 0xffffffff) >>> 0;
 }
 
-// opts: { windClass: 'random' | 'slow' | 'moderate', gustiness: 0..0.35 }
+function makePoles(layout, upwind, left) {
+  if (layout === 'pilot') {
+    const { upwind: a, right } = PILOT_STREAMER;
+    return [{ id: 'P', label: 'Your streamer', pos: add(scale(upwind, a), scale(left, -right)) }];
+  }
+  return [
+    { id: 'L', label: 'Left pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, POLE_SPREAD)) },
+    { id: 'R', label: 'Right pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, -POLE_SPREAD)) },
+  ];
+}
+
+// Where the line o + s·u crosses the field: [sIn, sOut], or null if it misses.
+export function fieldChord(o, u, field) {
+  let lo = -Infinity;
+  let hi = Infinity;
+  for (const [oc, uc, h] of [
+    [o.x, u.x, field.halfW],
+    [o.y, u.y, field.halfH],
+  ]) {
+    if (Math.abs(uc) < 1e-9) {
+      if (Math.abs(oc) > h) return null;
+      continue;
+    }
+    const a = (-h - oc) / uc;
+    const b = (h - oc) / uc;
+    lo = Math.max(lo, Math.min(a, b));
+    hi = Math.min(hi, Math.max(a, b));
+  }
+  return hi > lo ? [lo, hi] : null;
+}
+
+// Metres of drift the thermal should have left on the field once it forms.
+export const minTrackOnField = (windSpeed) => Math.max(35, windSpeed * 15);
+
+// opts: {
+//   windClass: 'random' | 'slow' | 'moderate',
+//   gustiness: 0..0.35,
+//   layout: 'poles' | 'pilot',
+//   field: { halfW, halfH } in metres,
+// }
 export function createScenario(seed, opts = {}) {
   const rng = mulberry32(seed);
   const windPref = opts.windClass ?? 'random';
@@ -29,25 +83,27 @@ export function createScenario(seed, opts = {}) {
   const windFrom = rng() * 360; // meteorological: direction the wind comes FROM
   const wind = fromHeading((windFrom + 180) % 360, windSpeed);
 
-  const upwind = norm(scale(wind, -1));
+  const layout = opts.layout === 'pilot' ? 'pilot' : 'poles';
+  const field = opts.field ?? DEFAULT_FIELD;
+  const down = norm(wind);
+  const upwind = scale(down, -1);
   const left = perpLeft(upwind); // pilot's left when facing into wind
-  const poles = [
-    { id: 'L', label: 'Left pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, POLE_SPREAD)) },
-    { id: 'R', label: 'Right pole', pos: add(scale(upwind, POLE_UPWIND), scale(left, -POLE_SPREAD)) },
-  ];
+  const poles = makePoles(layout, upwind, left);
 
-  // Thermal: forms somewhere upwind of the pilot, inside the visible field,
-  // after a quiet spell so the player can learn the baseline wind first.
+  // Thermal track: any line across the field parallel to the wind. Pick the
+  // crosswind offset evenly over the whole field, then a starting point
+  // anywhere along that line, from just beyond the upwind edge to far enough
+  // up the field that it stays on screen for a while.
+  const crossExtent = Math.abs(left.x) * field.halfW + Math.abs(left.y) * field.halfH;
+  const minTrack = minTrackOnField(windSpeed);
   let spawnPos;
-  for (let i = 0; i < 200; i++) {
-    const a = randRange(rng, 18, 62); // metres upwind of the pilot
-    const c = randRange(rng, -42, 42); // metres across the wind
-    const p = add(scale(upwind, a), scale(left, c));
-    const nearPole = Math.min(...poles.map((pl) => dist(pl.pos, p)));
-    if (Math.abs(p.x) <= FIELD_HALF - 8 && Math.abs(p.y) <= FIELD_HALF - 8 && nearPole > 8) {
-      spawnPos = p;
-      break;
-    }
+  for (let i = 0; i < 400 && !spawnPos; i++) {
+    const o = scale(left, randRange(rng, -crossExtent, crossExtent));
+    const chord = fieldChord(o, down, field);
+    if (!chord || chord[1] - chord[0] < minTrack) continue; // clips a corner
+    const p = add(o, scale(down, randRange(rng, chord[0] - ENTRY_MARGIN, chord[1] - minTrack)));
+    if (Math.min(...poles.map((pl) => dist(pl.pos, p))) < 8) continue;
+    spawnPos = p;
   }
   spawnPos ??= scale(upwind, 40);
 
@@ -70,6 +126,8 @@ export function createScenario(seed, opts = {}) {
     wind,
     upwind,
     left,
+    layout,
+    field,
     poles,
     thermalSpec,
     gusts,
@@ -78,9 +136,9 @@ export function createScenario(seed, opts = {}) {
   };
 }
 
-// Is a circle of radius r at p completely outside the visible field?
-export function offField(p, r = 0) {
-  return Math.abs(p.x) > FIELD_HALF + r || Math.abs(p.y) > FIELD_HALF + r;
+// Is a circle of radius r at p completely outside the field?
+export function offField(p, r = 0, field = DEFAULT_FIELD) {
+  return Math.abs(p.x) > field.halfW + r || Math.abs(p.y) > field.halfH + r;
 }
 
 // ---- Scoring -----------------------------------------------------------------
@@ -145,7 +203,11 @@ export class Round {
         this.trailClock = 0;
         this.trail.push({ ...th.pos });
       }
-      if (this.phase !== 'over' && offField(th.pos, th.radius * 0.6)) {
+      // A thermal can form just beyond the upwind edge, so it has only left
+      // once it has been on the field and drifted off again.
+      const off = offField(th.pos, th.radius * 0.6, this.scn.field);
+      if (!off) th.entered = true;
+      if (this.phase !== 'over' && th.entered && off) {
         this.endReason = this.guess ? 'drifted' : 'unmarked';
         this.endT = this.t;
         this.phase = 'over';
@@ -192,14 +254,18 @@ export class Round {
   }
 }
 
-// Rough time for a thermal to cross from its spawn point off the field.
+// Time for the thermal to drift from where it forms until it leaves the field.
 export function estimatedCrossingTime(scn) {
   const { spawnPos, radius } = scn.thermalSpec;
   const u = norm(scn.wind);
   let t = 0;
   let p = { ...spawnPos };
+  let entered = false;
   const step = 0.5;
-  while (!offField(p, radius * 0.6) && t < 600) {
+  while (t < 600) {
+    const off = offField(p, radius * 0.6, scn.field);
+    if (!off) entered = true;
+    if (entered && off) break;
     p = add(p, scale(u, scn.windSpeed * step));
     t += step;
   }

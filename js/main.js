@@ -1,4 +1,4 @@
-import { createScenario, Round, randomSeed, WIND_CLASSES } from './scenario.js';
+import { createScenario, Round, randomSeed, WIND_CLASSES, FIELD_SHORT_HALF } from './scenario.js';
 import { Streamer } from './physics.js';
 import { Renderer } from './render.js';
 import { FlowParticles } from './flow.js';
@@ -28,6 +28,7 @@ const store = {
 
 const savedSettings = store.get('tvt.settings', {});
 const settings = {
+  mode: 'poles',
   windClass: 'random',
   gustiness: 10,
   speed: 1,
@@ -55,8 +56,30 @@ let recorded = false;
 let roundNo = 0;
 let sessionScore = 0;
 
+const INSTRUCTIONS = {
+  poles:
+    'Watch both streamers. When the air shifts, work out the third vector and <strong>click the field where you think the thermal is</strong>.',
+  pilot:
+    'Watch the streamer beside you. Its shift points toward the lift, and how big and how fast it changes tells you how far away. <strong>Click where you think the thermal is</strong>.',
+};
+
+// The field's shorter side always shows FIELD_SHORT_HALF metres each way;
+// the longer side shows proportionally more.
+function currentField() {
+  const short = Math.min(renderer.w, renderer.h);
+  return {
+    halfW: Math.round((FIELD_SHORT_HALF * renderer.w) / short),
+    halfH: Math.round((FIELD_SHORT_HALF * renderer.h) / short),
+  };
+}
+
 function newRound(seed = randomSeed(), opts = null) {
-  const scenarioOpts = opts ?? { windClass: settings.windClass, gustiness: settings.gustiness / 100 };
+  const scenarioOpts = opts ?? {
+    windClass: settings.windClass,
+    gustiness: settings.gustiness / 100,
+    layout: settings.mode,
+    field: currentField(),
+  };
   const scn = createScenario(seed, scenarioOpts);
   round = new Round(scn);
   round.opts = scenarioOpts;
@@ -72,6 +95,7 @@ function newRound(seed = randomSeed(), opts = null) {
   roundNo++;
 
   $('roundNo').textContent = roundNo;
+  $('instructions').innerHTML = INSTRUCTIONS[scn.layout];
   $('seedLabel').textContent = `#${seed.toString(16).toUpperCase().padStart(8, '0')}`;
   clearTimeout(toastTimer);
   $('toast').hidden = true;
@@ -128,7 +152,7 @@ function syncPhase() {
 // ---- Round events ---------------------------------------------------------------
 
 function onRevealed() {
-  particles = new FlowParticles();
+  particles = new FlowParticles(round.scn.field);
   wrap.classList.add('locked');
   $('btnReveal').disabled = true;
 
@@ -287,21 +311,25 @@ $('btnReveal').addEventListener('click', () => round.reveal());
 $('btnPause').addEventListener('click', () => setPaused(!paused));
 $('toast').addEventListener('click', () => ($('toast').hidden = true));
 
-function bindSegmented(id, key, parse = (v) => v) {
+function bindSegmented(id, key, parse = (v) => v, onChange = null) {
   const seg = $(id);
   const buttons = [...seg.querySelectorAll('button')];
   const sync = () => buttons.forEach((b) => b.setAttribute('aria-checked', String(parse(b.dataset.v) === settings[key])));
   buttons.forEach((b) =>
     b.addEventListener('click', () => {
+      const changed = settings[key] !== parse(b.dataset.v);
       settings[key] = parse(b.dataset.v);
       saveSettings();
       sync();
+      if (changed && onChange) onChange();
     }),
   );
   sync();
 }
 bindSegmented('speedSeg', 'speed', Number);
 bindSegmented('windSeg', 'windClass');
+// Switching layout starts a fresh scenario straight away.
+bindSegmented('modeSeg', 'mode', String, () => newRound());
 
 for (const [id, key] of [
   ['aidBaseline', 'baseline'],
@@ -348,23 +376,23 @@ window.addEventListener('keydown', (e) => {
 
 // ---- Layout -------------------------------------------------------------------------
 
+// On desktop the field fills the stage; stacked on a phone it's sized from the
+// width. Either way it's kept from getting too long and thin.
+const MAX_ASPECT = 1.8;
+
 function layout() {
   const stage = wrap.parentElement;
-  const top = stage.getBoundingClientRect().top + window.scrollY;
-  const singleColumn = window.matchMedia('(max-width: 900px)').matches;
-  const maxH = singleColumn ? window.innerHeight * 0.82 : window.innerHeight - top - 20;
-  const size = Math.floor(Math.max(280, Math.min(stage.clientWidth, maxH)));
-  if (size !== renderer.size) renderer.resize(size);
+  const stacked = window.matchMedia('(max-width: 900px)').matches;
+  let w = stage.clientWidth;
+  let h = stacked ? Math.max(w * 0.75, Math.min(window.innerHeight * 0.72, w * 1.3)) : stage.clientHeight;
+  if (w / h > MAX_ASPECT) w = h * MAX_ASPECT;
+  if (h / w > MAX_ASPECT) h = w * MAX_ASPECT;
+  w = Math.max(260, Math.floor(w));
+  h = Math.max(260, Math.floor(h));
+  if (w !== renderer.w || h !== renderer.h) renderer.resize(w, h);
 }
 
-let lastStageWidth = 0;
-new ResizeObserver(() => {
-  const w = wrap.parentElement.clientWidth;
-  if (w !== lastStageWidth) {
-    lastStageWidth = w;
-    layout();
-  }
-}).observe(wrap.parentElement);
+new ResizeObserver(layout).observe(wrap.parentElement);
 window.addEventListener('resize', layout);
 
 function formatClock(t) {

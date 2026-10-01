@@ -1,7 +1,6 @@
 // Canvas renderer: stylised top-down flying field.
 
 import { add, sub, scale, len, norm, lerp } from './vec.js';
-import { FIELD_HALF } from './scenario.js';
 import { thermalInflow, streamerTipOffset, mulberry32 } from './physics.js';
 
 export const COLORS = {
@@ -22,27 +21,41 @@ export class Renderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.grass = document.createElement('canvas');
-    this.size = 0;
+    this.w = 0;
+    this.h = 0;
+    this.ppm = 1;
+    this.fitKey = '';
   }
 
-  resize(cssSize) {
+  // Canvas size in CSS pixels.
+  resize(w, h) {
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    this.size = cssSize;
+    this.w = w;
+    this.h = h;
     this.dpr = dpr;
-    this.canvas.width = Math.round(cssSize * dpr);
-    this.canvas.height = Math.round(cssSize * dpr);
-    this.canvas.style.width = `${cssSize}px`;
-    this.canvas.style.height = `${cssSize}px`;
-    this.ppm = cssSize / (2 * FIELD_HALF);
+    this.canvas.width = Math.round(w * dpr);
+    this.canvas.height = Math.round(h * dpr);
+    this.canvas.style.width = `${w}px`;
+    this.canvas.style.height = `${h}px`;
+    this.fitKey = '';
+  }
+
+  // Scale so the scenario's field fills the canvas (pilot at the centre).
+  fit(field) {
+    const key = `${this.w}x${this.h}:${field.halfW}x${field.halfH}`;
+    if (key === this.fitKey) return;
+    this.fitKey = key;
+    this.field = field;
+    this.ppm = Math.min(this.w / (2 * field.halfW), this.h / (2 * field.halfH));
     this.paintGrass();
   }
 
   toScreen(p) {
-    return { x: this.size / 2 + p.x * this.ppm, y: this.size / 2 - p.y * this.ppm };
+    return { x: this.w / 2 + p.x * this.ppm, y: this.h / 2 - p.y * this.ppm };
   }
 
   toWorld(sx, sy) {
-    return { x: (sx - this.size / 2) / this.ppm, y: -(sy - this.size / 2) / this.ppm };
+    return { x: (sx - this.w / 2) / this.ppm, y: -(sy - this.h / 2) / this.ppm };
   }
 
   // World-space vector → screen-space vector (no translation).
@@ -58,25 +71,26 @@ export class Renderer {
     g.height = this.canvas.height;
     const c = g.getContext('2d');
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    const S = this.size;
+    const W = this.w;
+    const H = this.h;
     const ppm = this.ppm;
 
     c.fillStyle = '#5c9e45';
-    c.fillRect(0, 0, S, S);
+    c.fillRect(0, 0, W, H);
 
     // Mowing stripes, 8 m wide, running north–south.
     const stripe = 8 * ppm;
-    for (let i = 0, x = (S / 2) % stripe - stripe; x < S; i++, x += stripe) {
+    for (let i = 0, x = (W / 2) % stripe - stripe; x < W; i++, x += stripe) {
       c.fillStyle = i % 2 ? '#64a84c' : '#5a9b43';
-      c.fillRect(x, 0, stripe, S);
+      c.fillRect(x, 0, stripe, H);
     }
 
     // Grass texture: thousands of tiny blades, seeded so it never shimmers.
     const rng = mulberry32(42);
-    const blades = Math.round((S * S) / 90);
+    const blades = Math.round((W * H) / 90);
     for (let i = 0; i < blades; i++) {
-      const x = rng() * S;
-      const y = rng() * S;
+      const x = rng() * W;
+      const y = rng() * H;
       const shade = rng();
       c.strokeStyle =
         shade < 0.5 ? 'rgba(40, 90, 30, 0.22)' : shade < 0.85 ? 'rgba(140, 200, 100, 0.16)' : 'rgba(30, 70, 25, 0.3)';
@@ -88,9 +102,10 @@ export class Renderer {
     }
 
     // A few clumps of clover/daisies for character.
-    for (let i = 0; i < 26; i++) {
-      const x = rng() * S;
-      const y = rng() * S;
+    const clumps = Math.round((W * H) / 24000);
+    for (let i = 0; i < clumps; i++) {
+      const x = rng() * W;
+      const y = rng() * H;
       const n = 3 + Math.floor(rng() * 6);
       for (let j = 0; j < n; j++) {
         c.fillStyle = rng() < 0.7 ? 'rgba(255, 255, 240, 0.55)' : 'rgba(255, 220, 90, 0.55)';
@@ -101,18 +116,19 @@ export class Renderer {
     }
 
     // Worn patch where the pilots stand.
-    const wear = c.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, 7 * ppm);
+    const wear = c.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, 7 * ppm);
     wear.addColorStop(0, 'rgba(170, 160, 90, 0.35)');
     wear.addColorStop(1, 'rgba(170, 160, 90, 0)');
     c.fillStyle = wear;
-    c.fillRect(0, 0, S, S);
+    c.fillRect(0, 0, W, H);
 
     // Soft vignette.
-    const vig = c.createRadialGradient(S / 2, S / 2, S * 0.35, S / 2, S / 2, S * 0.75);
+    const R = Math.hypot(W, H) / 2;
+    const vig = c.createRadialGradient(W / 2, H / 2, R * 0.5, W / 2, H / 2, R * 1.05);
     vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
     vig.addColorStop(1, 'rgba(0, 20, 0, 0.32)');
     c.fillStyle = vig;
-    c.fillRect(0, 0, S, S);
+    c.fillRect(0, 0, W, H);
   }
 
   // ---- Frame -----------------------------------------------------------------
@@ -124,8 +140,9 @@ export class Renderer {
     const revealed = round.phase !== 'watching';
     const th = scn.thermal;
 
+    this.fit(scn.field);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.drawImage(this.grass, 0, 0, this.size, this.size);
+    ctx.drawImage(this.grass, 0, 0, this.w, this.h);
 
     if (assists.rings) this.drawRangeRings();
 
@@ -146,7 +163,7 @@ export class Renderer {
       this.drawStreamer(s);
       if (showB) this.drawBaseline(s, scn);
       if (showThird) this.drawThirdVector(s, scn, revealed);
-      this.drawPole(s);
+      this.drawPole(s, streamers.length > 1);
     }
 
     this.drawPilot(scn.upwind);
@@ -170,7 +187,8 @@ export class Renderer {
     ctx.setLineDash([3, 5]);
     ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-    for (const r of [25, 50]) {
+    const reach = Math.max(this.field.halfW, this.field.halfH) - 8;
+    for (const r of [25, 50, 75, 100].filter((r) => r <= reach)) {
       ctx.beginPath();
       ctx.arc(c.x, c.y, r * this.ppm, 0, Math.PI * 2);
       ctx.stroke();
@@ -262,7 +280,7 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawPole(s) {
+  drawPole(s, labelled) {
     const { ctx } = this;
     const p = this.toScreen(s.pole);
     ctx.save();
@@ -278,7 +296,7 @@ export class Renderer {
     const away = norm(scale(this.vToScreen(s.v), -1));
     const lx = p.x + (away.x || 0) * 14;
     const ly = p.y + (away.y || -1) * 14;
-    this.pill(s.id, lx, ly, 'rgba(20, 30, 20, 0.7)', '#fff', 10);
+    if (labelled) this.pill(s.id, lx, ly, 'rgba(20, 30, 20, 0.7)', '#fff', 10);
     ctx.restore();
   }
 
@@ -332,7 +350,7 @@ export class Renderer {
     const v = sub(C, B);
     if (len(v) < 4) return;
     const d = norm(v);
-    const end = add(B, scale(d, this.size * 1.5));
+    const end = add(B, scale(d, Math.hypot(this.w, this.h)));
     const { ctx } = this;
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 210, 63, 0.5)';
@@ -478,7 +496,7 @@ export class Renderer {
       for (let i = 0; i < ring.n; i++) {
         const a = ring.off + (i / ring.n) * Math.PI * 2;
         const O = add(th.pos, { x: Math.cos(a) * ring.r, y: Math.sin(a) * ring.r });
-        if (Math.abs(O.x) > 72 || Math.abs(O.y) > 72) continue;
+        if (Math.abs(O.x) > this.field.halfW + 4 || Math.abs(O.y) > this.field.halfH + 4) continue;
         const I = thermalInflow(th, O);
         const Wtip = add(O, scale(scn.wind, k));
         const Ftip = add(Wtip, scale(I, k));
@@ -602,7 +620,7 @@ export class Renderer {
     const m = 20;
     const w = m * this.ppm;
     const x = 16;
-    const y = this.size - 18;
+    const y = this.h - 18;
     ctx.save();
     ctx.fillStyle = 'rgba(10, 25, 12, 0.55)';
     roundRect(ctx, x - 8, y - 20, w + 16, 30, 6);
@@ -625,7 +643,7 @@ export class Renderer {
   drawAmbientKey(scn) {
     // Big ambient-wind arrow in the top-right corner.
     const { ctx } = this;
-    const cx = this.size - 46;
+    const cx = this.w - 46;
     const cy = 46;
     const d = norm(this.vToScreen(scn.wind));
     const L = 26;

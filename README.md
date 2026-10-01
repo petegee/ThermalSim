@@ -71,6 +71,15 @@ Scoring: `100 · exp(−d² / 2·12²)` for miss distance d in metres. Ratings a
 npm test     # node --test, no dependencies
 ```
 
+## Deploy
+
+It's hosted on Fly.io as a tiny nginx container (`Dockerfile`, `nginx.conf`, `fly.toml`). GitHub Actions (`.github/workflows/build-and-test.yml`) runs the tests on every push and pull request, and pushes to `main` also deploy. One-time setup:
+
+1. `fly apps create thermalsim` (if the name is taken, pick another and update `app` in `fly.toml`).
+2. Add a `FLY_IO_DEPLOY_TOKEN` secret to the GitHub repo. Get one from `fly tokens create deploy -a thermalsim`.
+
+To deploy by hand instead: `fly deploy`.
+
 ## Sources
 
 The source documents aren't included in this repository.

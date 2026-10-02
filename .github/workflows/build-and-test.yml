@@ -32,6 +32,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@1.6
-      - run: flyctl deploy --remote-only
+      - run: flyctl deploy --remote-only --ha=false   # single machine only; omit --ha=false to restore 2-machine HA
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_IO_DEPLOY_TOKEN }}

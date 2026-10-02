@@ -1,6 +1,9 @@
 # fly.toml app configuration file for thermalsim.
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
+# Single-machine app: keep count at 1 with `fly scale count 1 -a thermalsim`
+# and always deploy with `fly deploy --ha=false` (CI already does this),
+# otherwise Fly defaults back to 2 machines for HA.
 
 app = 'thermalsim'
 primary_region = 'syd'

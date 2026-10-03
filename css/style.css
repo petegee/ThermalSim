@@ -370,6 +370,82 @@ canvas {
   line-height: 1;
 }
 
+/* Easter egg: triple-click the pilot's head. */
+.rowdy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  z-index: 5;
+}
+
+.rowdy-card {
+  position: relative;
+  margin: 0;
+  width: min(72%, 420px);
+  animation: rowdy-pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+.rowdy-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 5px solid #fff;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  transform: rotate(-3deg);
+}
+
+/* Comic speech bubble, tail pointing down-left toward his face. */
+.bubble {
+  position: absolute;
+  top: -8%;
+  right: -6%;
+  padding: 0.5em 0.9em;
+  background: #fff;
+  color: #111;
+  border: 3px solid #111;
+  border-radius: 50% / 45%;
+  font: 900 clamp(18px, 4.5vw, 30px) / 1.1 'Comic Sans MS', 'Comic Neue', 'Chalkboard SE', 'Arial Rounded MT Bold', system-ui, sans-serif;
+  transform: rotate(6deg);
+  box-shadow: 3px 3px 0 #111;
+  white-space: nowrap;
+}
+
+.bubble::before,
+.bubble::after {
+  content: '';
+  position: absolute;
+  border-style: solid;
+}
+
+.bubble::before {
+  left: 18%;
+  bottom: -26px;
+  border-width: 26px 22px 0 0;
+  border-color: #111 transparent transparent;
+}
+
+.bubble::after {
+  left: calc(18% + 4px);
+  bottom: -18px;
+  border-width: 19px 15px 0 0;
+  border-color: #fff transparent transparent;
+}
+
+@keyframes rowdy-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3) rotate(-12deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ---- Panel ------------------------------------------------------------------ */
 
 .panel {

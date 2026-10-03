@@ -105,6 +105,7 @@ Trade-off to keep in mind: the readability rule means **weak thermals pass close
 - Colours (`COLORS`): ambient = blue, felt = white, third vector = yellow (Joe's convention, but felt is white not green, because green is invisible on grass), streamer = orange, guess = pink.
 - Training aids (`settings.assists`): `baseline` (B, default on), `third` (B→C), `project` (rays to the field edge), `rings` (every 25 m). After the reveal, B and B→C are always shown.
 - Settings (localStorage `tvt.settings`): `mode, windClass, thermalClass, easy, gustiness` (integer %), `speed, assists, v`. **Bump `SETTINGS_VERSION`** and drop the affected keys when changing a default that saved values would otherwise override (v2 reset gustiness 10 → 6). Stats: `tvt.stats`. All storage access goes through try/catch (`store`).
+- Easter egg (deliberately not in the README): three clicks within 500 ms each on the pilot's head pause the game and show `img/rowdy.jpg` with a "Bottlestore?" speech bubble (`#rowdy` overlay). Clicks on the head never mark a guess. The Dockerfile copies `img/`.
 - Changing the mode starts a new round immediately. The other conditions apply to the next scenario. Keys: Space pause, N new, R reveal.
 - CSS gotchas: `[hidden] { display: none !important }` is required because overlay classes set `display`. The desktop grid needs `min-height: 0` on the stage and panel for the panel to scroll, but the stacked (≤ 900 px) layout must *not* constrain heights, or the canvas overlaps the panel.
 

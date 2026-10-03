@@ -328,10 +328,47 @@ function canvasPoint(e) {
   return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 }
 
+// Easter egg: three quick clicks on the pilot's head. Clicks there never mark a
+// guess (a mark on the pilot earns nothing anyway), so the first two don't
+// spend the round.
+const EGG_CLICKS = 3;
+const EGG_WINDOW_MS = 500; // max gap between clicks
+let eggClicks = 0;
+let eggLast = 0;
+let pausedBeforeEgg = false;
+
+function onPilotHead(p) {
+  const c = renderer.toScreen({ x: 0, y: 0 });
+  const r = Math.max(renderer.ppm * 0.49 * 1.8, 14); // head is 1.4u; be generous
+  return Math.hypot(p.x - c.x, p.y - c.y) <= r;
+}
+
+function showRowdy(show) {
+  $('rowdy').hidden = !show;
+  if (show) {
+    pausedBeforeEgg = paused;
+    setPaused(true);
+  } else if (!pausedBeforeEgg) {
+    setPaused(false);
+  }
+}
+
+$('rowdy').addEventListener('click', () => showRowdy(false));
+
 canvas.addEventListener('pointerdown', (e) => {
+  const p = canvasPoint(e);
+  if (onPilotHead(p)) {
+    eggClicks = e.timeStamp - eggLast <= EGG_WINDOW_MS ? eggClicks + 1 : 1;
+    eggLast = e.timeStamp;
+    if (eggClicks >= EGG_CLICKS) {
+      eggClicks = 0;
+      showRowdy(true);
+    }
+    return;
+  }
+  eggClicks = 0;
   if (round.phase !== 'watching') return;
   if (paused) setPaused(false);
-  const p = canvasPoint(e);
   round.mark(renderer.toWorld(p.x, p.y));
 });
 
@@ -408,6 +445,13 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const tag = e.target.tagName;
   const inControl = tag === 'INPUT' || tag === 'BUTTON' || tag === 'SUMMARY';
+  if (!$('rowdy').hidden) {
+    if (e.key === 'Escape' || e.code === 'Space') {
+      e.preventDefault();
+      showRowdy(false);
+    }
+    return;
+  }
   if (e.code === 'Space' && !inControl) {
     e.preventDefault();
     setPaused(!paused);
